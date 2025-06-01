@@ -1,9 +1,9 @@
-// ✅ Facebook 留言触发器：支持关键词 "start"、"on" 和 "zzz"，并防重复处理
+// ✅ Facebook 留言触发器：关键词 "start"、"on"、"zzz"，支持 Supabase 判重
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
 const fetch = require('node-fetch')
 
-// 初始化 Supabase 客户端（表名已固定为 "triggered_comments"）
+// 初始化 Supabase 客户端（固定使用 triggered_comments 表）
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
@@ -11,7 +11,7 @@ const supabase = createClient(
 const TABLE_NAME = "triggered_comments"
 const PAGE_ID = process.env.PAGE_ID
 
-// 验证请求来源：来自 Facebook 或 EasyCron
+// 验证请求来源（Facebook 签名或 Cron 密钥）
 function verifyRequest(req) {
   if (req.headers['x-hub-signature-256']) {
     const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
@@ -21,7 +21,7 @@ function verifyRequest(req) {
   return req.headers['x-cron-secret'] === process.env.CRON_SECRET
 }
 
-// 获取最新一篇贴文及其留言
+// 获取主页最新一篇贴文及留言
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
@@ -59,7 +59,7 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ 关键词 "start" 或 "on"：自动留言
+    // ✅ 关键词 "start" 或 "on" → 自动留言
     if (message.includes('start') || message.includes('on')) {
       await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
         method: 'POST',
@@ -72,7 +72,7 @@ async function processComments() {
       triggerCount++
     }
 
-    // ✅ 关键词 "zzz"：调用 Make Webhook 倒数
+    // ✅ 关键词 "zzz" → 触发倒数
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
@@ -87,10 +87,16 @@ async function processComments() {
   return { triggered: triggerCount }
 }
 
-// 导出 HTTP Handler（用于 Vercel）
+// 导出 HTTP Handler（支持 debug=true 绕过验证）
 module.exports = async (req, res) => {
+  const debugBypass = req.query.debug === 'true'
+
   if (!verifyRequest(req)) {
-    return res.status(403).json({ error: 'Unauthorized' })
+    if (!debugBypass) {
+      return res.status(403).json({ error: 'Unauthorized' })
+    } else {
+      console.log('⚠️ Debug 模式已跳过验证')
+    }
   }
 
   try {
