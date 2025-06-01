@@ -1,9 +1,8 @@
-// ✅ Facebook 留言触发器：关键词 "start"、"on"、"zzz"，支持 Supabase 判重
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
 const fetch = require('node-fetch')
 
-// 初始化 Supabase 客户端（固定使用 triggered_comments 表）
+// 初始化 Supabase（固定使用 triggered_comments 表）
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
@@ -11,7 +10,7 @@ const supabase = createClient(
 const TABLE_NAME = "triggered_comments"
 const PAGE_ID = process.env.PAGE_ID
 
-// 验证请求来源（Facebook 签名或 Cron 密钥）
+// 请求验证函数
 function verifyRequest(req) {
   if (req.headers['x-hub-signature-256']) {
     const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
@@ -21,7 +20,7 @@ function verifyRequest(req) {
   return req.headers['x-cron-secret'] === process.env.CRON_SECRET
 }
 
-// 获取主页最新一篇贴文及留言
+// 获取最新贴文及留言
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
@@ -45,10 +44,12 @@ async function markAsProcessed(commentId) {
     .insert([{ comment_id: commentId }])
 }
 
-// 主处理逻辑
+// 主处理函数
 async function processComments() {
   const post = await getLatestPost()
-  if (!post || !post.comments?.data) return { message: 'No recent post or comments.' }
+  if (!post || !post.comments?.data || post.comments.data.length === 0) {
+    return { message: 'No recent post or comments.' }
+  }
 
   let triggerCount = 0
 
@@ -59,7 +60,6 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ 关键词 "start" 或 "on" → 自动留言
     if (message.includes('start') || message.includes('on')) {
       await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
         method: 'POST',
@@ -72,7 +72,6 @@ async function processComments() {
       triggerCount++
     }
 
-    // ✅ 关键词 "zzz" → 触发倒数
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
@@ -84,10 +83,14 @@ async function processComments() {
     }
   }
 
-  return { triggered: triggerCount }
+  if (triggerCount > 0) {
+    return { triggered: triggerCount, post_id: post.id }
+  } else {
+    return { message: 'Invalid comments. No trigger matched.', post_id: post.id }
+  }
 }
 
-// 导出 HTTP Handler（支持 debug=true 绕过验证）
+// 导出 handler（支持 debug=true 测试绕过验证）
 module.exports = async (req, res) => {
   const debugBypass = req.query.debug === 'true'
 
@@ -101,7 +104,7 @@ module.exports = async (req, res) => {
 
   try {
     const result = await processComments()
-    res.status(200).json({ message: 'Checked comments successfully (Supabase)', ...result })
+    res.status(200).json(result)
   } catch (error) {
     console.error('Error:', error)
     res.status(500).json({ error: error.message })
