@@ -60,7 +60,8 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    if (message.includes('start') || message.includes('on')) {
+    // ✅ 关键词判断：开始 / go / on
+    if (message.includes('开始') || message.includes('go') || message.includes('on')) {
       await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
         method: 'POST',
         body: new URLSearchParams({
@@ -72,6 +73,7 @@ async function processComments() {
       triggerCount++
     }
 
+    // ✅ 判断 zzz，触发 Make Webhook
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
