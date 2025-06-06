@@ -1,7 +1,8 @@
-import { createClient } from '@supabase/supabase-js'
-import crypto from 'crypto'
-import fetch from 'node-fetch'
+const { createClient } = require('@supabase/supabase-js')
+const crypto = require('crypto')
+const fetch = require('node-fetch')
 
+// 初始化 Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
@@ -10,26 +11,24 @@ const supabase = createClient(
 const TABLE_NAME = 'triggered_comments'
 const PAGE_ID = process.env.PAGE_ID
 
-// 验证请求（签名 or CRON_SECRET or debug）
+// 请求验证（支持 x-cron-secret / cron_secret / Cron_Secret）
 function verifyRequest(req) {
   const signature = req.headers['x-hub-signature-256']
-  const cronSecret = req.headers['cron_secret']
-  const bypass = req.query.debug === 'true'
+  const cronSecret =
+    req.headers['x-cron-secret'] ||
+    req.headers['cron-secret'] ||
+    req.headers['cron_secret']
 
   if (signature) {
-    const expected = 'sha256=' + crypto
-      .createHmac('sha256', process.env.FB_APP_SECRET)
-      .update(JSON.stringify(req.body))
-      .digest('hex')
-    return signature === expected
+    const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
+    const digest = hmac.update(JSON.stringify(req.body)).digest('hex')
+    return `sha256=${digest}` === signature
   }
 
-  if (cronSecret && cronSecret === process.env.FB_VERIFY_TOKEN) return true
-  if (bypass) return true
-
-  return false
+  return cronSecret === process.env.CRON_SECRET
 }
 
+// 获取最新贴文及留言
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
@@ -37,6 +36,7 @@ async function getLatestPost() {
   return json.data?.[0] || null
 }
 
+// 判断留言是否已处理
 async function isProcessed(commentId) {
   const { data } = await supabase
     .from(TABLE_NAME)
@@ -45,17 +45,18 @@ async function isProcessed(commentId) {
   return data.length > 0
 }
 
-async function markAsProcessed(commentId, postId) {
-  const { error } = await supabase
+// 标记留言为已处理
+async function markAsProcessed(commentId) {
+  await supabase
     .from(TABLE_NAME)
-    .insert([{ comment_id: commentId, post_id: postId }])
-  if (error) console.error('❌ Supabase insert error:', error)
+    .insert([{ comment_id: commentId }])
 }
 
+// 主处理函数
 async function processComments() {
   const post = await getLatestPost()
-  if (!post || !post.comments?.data?.length) {
-    return { message: 'No post comments found – system running.', post_id: post?.id || null }
+  if (!post || !post.comments?.data || post.comments.data.length === 0) {
+    return { message: '🟡 No recent post or comments.' }
   }
 
   let triggerCount = 0
@@ -67,7 +68,6 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ 留言 on / 开始 / 晚上好 → 回复欢迎语
     if (message.includes('开始') || message.includes('on') || message.includes('晚上好')) {
       await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
         method: 'POST',
@@ -76,40 +76,43 @@ async function processComments() {
           access_token: process.env.FB_ACCESS_TOKEN
         })
       })
-      await markAsProcessed(comment.id, post.id)
+      await markAsProcessed(comment.id)
       triggerCount++
     }
 
-    // ✅ 留言 zzz → 触发 Make Webhook
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          post_id: post.id,
-          comment_id: comment.id
-        })
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id })
       })
-      await markAsProcessed(comment.id, post.id)
+      await markAsProcessed(comment.id)
       triggerCount++
     }
   }
 
   return triggerCount > 0
-    ? { triggered: triggerCount, post_id: post.id }
-    : { message: 'Invalid comments. No trigger matched.', post_id: post.id }
+    ? { status: '✅ Triggered', count: triggerCount, post_id: post.id }
+    : { status: '🟡 No match', post_id: post.id }
 }
 
-export default async function handler(req, res) {
+// Vercel 入口点
+module.exports = async (req, res) => {
+  const debugBypass = req.query.debug === 'true'
+
   if (!verifyRequest(req)) {
-    return res.status(403).json({ error: 'Unauthorized (missing valid signature or cron secret)' })
+    if (!debugBypass) {
+      return res.status(403).json({ error: 'Unauthorized (missing valid signature or cron secret)' })
+    } else {
+      console.log('⚠️ Debug mode: signature bypassed.')
+    }
   }
 
   try {
     const result = await processComments()
     res.status(200).json(result)
   } catch (err) {
-    console.error('❌ Error in handler:', err)
-    res.status(500).json({ error: err.message || 'Internal Server Error' })
+    console.error('❌ Error:', err)
+    res.status(500).json({ error: err.message })
   }
 }
