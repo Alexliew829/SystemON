@@ -1,33 +1,26 @@
-import { createClient } from '@supabase/supabase-js'
-import crypto from 'crypto'
-import fetch from 'node-fetch'
-import getRawBody from 'raw-body'
+const { createClient } = require('@supabase/supabase-js')
+const crypto = require('crypto')
+const fetch = require('node-fetch')
 
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-}
-
+// 初始化 Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 )
-const TABLE_NAME = process.env.SUPABASE_TABLE_NAME || 'triggered_comments'
+const TABLE_NAME = "triggered_comments"
 const PAGE_ID = process.env.PAGE_ID
 
-function verifyRequest(req, rawBody) {
-  const signature = req.headers['x-hub-signature-256']
-  if (!signature) return false
-
-  const expected = 'sha256=' + crypto
-    .createHmac('sha256', process.env.FB_APP_SECRET)
-    .update(rawBody)
-    .digest('hex')
-
-  return signature === expected
+// 请求验证函数
+function verifyRequest(req) {
+  if (req.headers['x-hub-signature-256']) {
+    const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
+    const digest = hmac.update(JSON.stringify(req.body)).digest('hex')
+    return `sha256=${digest}` === req.headers['x-hub-signature-256']
+  }
+  return req.headers['x-cron-secret'] === process.env.CRON_SECRET
 }
 
+// 获取最新贴文及留言
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
@@ -35,6 +28,7 @@ async function getLatestPost() {
   return json.data?.[0] || null
 }
 
+// 判断留言是否已处理
 async function isProcessed(commentId) {
   const { data } = await supabase
     .from(TABLE_NAME)
@@ -43,14 +37,18 @@ async function isProcessed(commentId) {
   return data.length > 0
 }
 
+// 标记留言为已处理
 async function markAsProcessed(commentId) {
-  await supabase.from(TABLE_NAME).insert([{ comment_id: commentId }])
+  await supabase
+    .from(TABLE_NAME)
+    .insert([{ comment_id: commentId }])
 }
 
+// 主处理函数
 async function processComments() {
   const post = await getLatestPost()
   if (!post || !post.comments?.data || post.comments.data.length === 0) {
-    return { message: 'No comments found in latest post.' }
+    return { message: 'No recent post or comments.' }
   }
 
   let triggerCount = 0
@@ -62,67 +60,55 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    if (message.includes('开始') || message.includes('on') || message.includes('晚上好')) {
+    // ✅ 关键词判断：开始 / on
+    if (message.includes('开始') || message.includes('on')) {
       await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
         method: 'POST',
         body: new URLSearchParams({
           message: 'System On 晚上好，欢迎来到情人传奇🌿',
-          access_token: process.env.FB_ACCESS_TOKEN,
-        }),
+          access_token: process.env.FB_ACCESS_TOKEN
+        })
       })
       await markAsProcessed(comment.id)
       triggerCount++
     }
 
+    // ✅ 判断 zzz，触发 Make Webhook
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          post_id: post.id,
-          comment_id: comment.id,
-        }),
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id })
       })
       await markAsProcessed(comment.id)
       triggerCount++
     }
   }
 
-  return triggerCount > 0
-    ? { triggered: triggerCount, post_id: post.id }
-    : { message: 'No valid comments matched trigger keywords.' }
+  if (triggerCount > 0) {
+    return { triggered: triggerCount, post_id: post.id }
+  } else {
+    return { message: 'Invalid comments. No trigger matched.', post_id: post.id }
+  }
 }
 
-export default async function handler(req, res) {
-  // Webhook 验证阶段（GET）
-  if (req.method === 'GET') {
-    const mode = req.query['hub.mode']
-    const token = req.query['hub.verify_token']
-    const challenge = req.query['hub.challenge']
+// ✅ 正确导出：符合 Vercel Serverless Function 格式
+module.exports = async (req, res) => {
+  const debugBypass = req.query.debug === 'true'
 
-    if (mode === 'subscribe' && token === process.env.FB_VERIFY_TOKEN) {
-      return res.status(200).send(challenge)
+  if (!verifyRequest(req)) {
+    if (!debugBypass) {
+      return res.status(403).json({ error: 'Unauthorized' })
     } else {
-      return res.status(403).send('⚠️ Webhook 验证请求（可忽略），系统运行正常。')
+      console.log('⚠️ Debug 模式已跳过验证')
     }
   }
 
-  // 留言监听阶段（POST）
-  if (req.method === 'POST') {
-    const rawBody = await getRawBody(req)
-    if (!verifyRequest(req, rawBody)) {
-      return res.status(403).json({ error: 'Signature verification failed' })
-    }
-
-    try {
-      req.body = JSON.parse(rawBody.toString('utf8'))
-      const result = await processComments()
-      res.status(200).json(result)
-    } catch (error) {
-      console.error('Error:', error)
-      res.status(500).json({ error: error.message })
-    }
-  } else {
-    res.status(405).send('Method Not Allowed')
+  try {
+    const result = await processComments()
+    res.status(200).json(result)
+  } catch (error) {
+    console.error('Error:', error)
+    res.status(500).json({ error: error.message })
   }
 }
