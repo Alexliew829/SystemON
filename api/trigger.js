@@ -19,12 +19,11 @@ function verifyRequest(req) {
     const digest = hmac.update(JSON.stringify(req.body)).digest('hex')
     return signature === `sha256=${digest}`
   }
-
   return cronSecret === expectedCron
 }
 
 async function getLatestPost() {
-  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
+  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,message,comments.limit(100){id,message,from,created_time}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
   const json = await res.json()
   return json.data?.[0] || null
@@ -58,7 +57,7 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ “on”只触发一次
+    // ✅ “on”触发一次 System On
     if (message.includes('on') || message.includes('开始')) {
       const hasSystemOn = post.comments.data.some(
         c => c.message?.includes('System On') && c.from?.id === PAGE_ID
@@ -79,12 +78,16 @@ async function processComments() {
       triggerCount++
     }
 
-    // ✅ “zzz”留言，执行 webhook
+    // ✅ “zzz”每次都触发，但只触发一次（不同留言）
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
+        body: JSON.stringify({
+          post_id: post.id,
+          comment_id: comment.id,
+          message: comment.message
+        }),
       })
       await markAsProcessed(comment.id)
       responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
