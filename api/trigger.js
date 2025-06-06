@@ -61,7 +61,7 @@ async function processComments() {
     if (!isFromPage || alreadyProcessed) continue
 
     // ✅ 自动回复“System On”
-    if (message.includes('开始') || message.includes('on')) {
+    if (message.includes('开始') || message.includes('on') || message.includes('晚上好')) {
       await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
         method: 'POST',
         body: new URLSearchParams({
@@ -85,11 +85,9 @@ async function processComments() {
     }
   }
 
-  if (triggerCount > 0) {
-    return { triggered: triggerCount }
-  } else {
-    return { message: 'Invalid comments. No trigger matched.' }
-  }
+  return triggerCount > 0
+    ? { triggered: triggerCount }
+    : { message: 'Invalid comments. No trigger matched.' }
 }
 
 // ✅ 处理 Facebook 验证（GET）+ 留言推送（POST）
@@ -99,6 +97,11 @@ module.exports = async (req, res) => {
     const mode = req.query['hub.mode']
     const token = req.query['hub.verify_token']
     const challenge = req.query['hub.challenge']
+
+    console.log('🔍 Facebook Webhook 验证中...')
+    console.log('➡️ hub.mode:', mode)
+    console.log('➡️ hub.verify_token (from URL):', token)
+    console.log('➡️ FB_VERIFY_TOKEN (from env):', process.env.FB_VERIFY_TOKEN)
 
     if (mode === 'subscribe' && token === process.env.FB_VERIFY_TOKEN) {
       return res.status(200).send(challenge)
@@ -117,7 +120,7 @@ module.exports = async (req, res) => {
       const result = await processComments()
       res.status(200).json(result)
     } catch (error) {
-      console.error('Error:', error)
+      console.error('❌ Error:', error)
       res.status(500).json({ error: error.message })
     }
   } else {
