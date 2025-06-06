@@ -1,7 +1,7 @@
-// pages/api/trigger.js
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
+import getRawBody from 'raw-body'
 
 export const config = {
   api: {
@@ -9,10 +9,12 @@ export const config = {
   },
 }
 
+// 初始化 Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 )
+
 const TABLE_NAME = process.env.SUPABASE_TABLE_NAME || 'triggered_comments'
 const PAGE_ID = process.env.PAGE_ID
 
@@ -28,13 +30,84 @@ function verifyRequest(req, rawBody) {
   return signature === expected
 }
 
-// ...省略中间内容保持不变...
+async function getLatestPost() {
+  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
+  const res = await fetch(url)
+  const json = await res.json()
+  return json.data?.[0] || null
+}
+
+async function isProcessed(commentId) {
+  const { data } = await supabase
+    .from(TABLE_NAME)
+    .select('comment_id')
+    .eq('comment_id', commentId)
+  return data.length > 0
+}
+
+async function markAsProcessed(commentId) {
+  await supabase
+    .from(TABLE_NAME)
+    .insert([{ comment_id: commentId }])
+}
+
+async function processComments() {
+  const post = await getLatestPost()
+  if (!post || !post.comments?.data || post.comments.data.length === 0) {
+    return { message: 'No recent post or comments.' }
+  }
+
+  let triggerCount = 0
+
+  for (const comment of post.comments.data) {
+    const isFromPage = comment.from?.id === PAGE_ID
+    const message = comment.message?.toLowerCase() || ''
+    const alreadyProcessed = await isProcessed(comment.id)
+
+    if (!isFromPage || alreadyProcessed) continue
+
+    // 自动回复 “System On”
+    if (message.includes('开始') || message.includes('on') || message.includes('晚上好')) {
+      await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          message: 'System On 晚上好，欢迎来到情人传奇🌿',
+          access_token: process.env.FB_ACCESS_TOKEN,
+        }),
+      })
+      await markAsProcessed(comment.id)
+      triggerCount++
+    }
+
+    // 自动触发 Make Webhook
+    if (message.includes('zzz')) {
+      await fetch(process.env.WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          post_id: post.id,
+          comment_id: comment.id,
+        }),
+      })
+      await markAsProcessed(comment.id)
+      triggerCount++
+    }
+  }
+
+  return triggerCount > 0
+    ? { triggered: triggerCount }
+    : { message: 'Invalid comments. No trigger matched.' }
+}
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
     const mode = req.query['hub.mode']
     const token = req.query['hub.verify_token']
     const challenge = req.query['hub.challenge']
+
+    console.log('🔍 FB_VERIFY_TOKEN in ENV:', process.env.FB_VERIFY_TOKEN)
+    console.log('🔍 FB token from URL     :', token)
+
     if (mode === 'subscribe' && token === process.env.FB_VERIFY_TOKEN) {
       return res.status(200).send(challenge)
     } else {
@@ -43,10 +116,7 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    // ✅ 使用动态导入 raw-body
-    const { default: getRawBody } = await import('raw-body')
     const rawBody = await getRawBody(req)
-
     if (!verifyRequest(req, rawBody)) {
       return res.status(403).json({ error: 'Signature verification failed' })
     }
@@ -56,7 +126,7 @@ export default async function handler(req, res) {
       const result = await processComments()
       res.status(200).json(result)
     } catch (error) {
-      console.error('Error:', error)
+      console.error('❌ Error:', error)
       res.status(500).json({ error: error.message })
     }
   } else {
