@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
+import getRawBody from 'raw-body'
 
 export const config = {
   api: {
@@ -8,16 +9,6 @@ export const config = {
   },
 }
 
-// 原生方式读取 Buffer（替代 raw-body）
-async function getRawBody(req) {
-  const chunks = []
-  for await (const chunk of req) {
-    chunks.push(chunk)
-  }
-  return Buffer.concat(chunks)
-}
-
-// 初始化 Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
@@ -59,11 +50,10 @@ async function markAsProcessed(commentId) {
 async function processComments() {
   const post = await getLatestPost()
   if (!post || !post.comments?.data || post.comments.data.length === 0) {
-    return { message: '❌ 没有找到贴文或留言', post_id: post?.id || '无' }
+    return { message: 'No comments found in latest post.' }
   }
 
   let triggerCount = 0
-  const triggeredIds = []
 
   for (const comment of post.comments.data) {
     const isFromPage = comment.from?.id === PAGE_ID
@@ -82,7 +72,6 @@ async function processComments() {
       })
       await markAsProcessed(comment.id)
       triggerCount++
-      triggeredIds.push({ type: 'system_on', comment_id: comment.id })
     }
 
     if (message.includes('zzz')) {
@@ -96,37 +85,32 @@ async function processComments() {
       })
       await markAsProcessed(comment.id)
       triggerCount++
-      triggeredIds.push({ type: 'zzz', comment_id: comment.id })
     }
   }
 
   return triggerCount > 0
-    ? {
-        message: `✅ 共触发 ${triggerCount} 次`,
-        post_id: post.id,
-        triggered: triggeredIds,
-      }
-    : { message: '⚠️ 没有匹配留言', post_id: post.id }
+    ? { triggered: triggerCount, post_id: post.id }
+    : { message: 'No valid comments matched trigger keywords.' }
 }
 
 export default async function handler(req, res) {
+  // Webhook 验证阶段（GET）
   if (req.method === 'GET') {
     const mode = req.query['hub.mode']
     const token = req.query['hub.verify_token']
     const challenge = req.query['hub.challenge']
+
     if (mode === 'subscribe' && token === process.env.FB_VERIFY_TOKEN) {
       return res.status(200).send(challenge)
     } else {
-      return res.status(403).send('Verification failed')
+      return res.status(403).send('⚠️ Webhook 验证请求（可忽略），系统运行正常。')
     }
   }
 
+  // 留言监听阶段（POST）
   if (req.method === 'POST') {
     const rawBody = await getRawBody(req)
-
-    // 如果是 Webhook 触发，校验签名
-    const isWebhook = req.headers['x-hub-signature-256']
-    if (isWebhook && !verifyRequest(req, rawBody)) {
+    if (!verifyRequest(req, rawBody)) {
       return res.status(403).json({ error: 'Signature verification failed' })
     }
 
