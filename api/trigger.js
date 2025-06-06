@@ -1,26 +1,34 @@
-const { createClient } = require('@supabase/supabase-js')
-const crypto = require('crypto')
-const fetch = require('node-fetch')
+// pages/api/trigger.js
+import { createClient } from '@supabase/supabase-js'
+import crypto from 'crypto'
+import fetch from 'node-fetch'
+import getRawBody from 'raw-body'
 
-// 初始化 Supabase
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+}
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 )
-const TABLE_NAME = process.env.SUPABASE_TABLE_NAME || "triggered_comments"
+const TABLE_NAME = process.env.SUPABASE_TABLE_NAME || 'triggered_comments'
 const PAGE_ID = process.env.PAGE_ID
 
-// Facebook Webhook 签名校验（POST 请求时）
-function verifyRequest(req) {
-  if (req.headers['x-hub-signature-256']) {
-    const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
-    const digest = hmac.update(JSON.stringify(req.body)).digest('hex')
-    return `sha256=${digest}` === req.headers['x-hub-signature-256']
-  }
-  return false
+function verifyRequest(req, rawBody) {
+  const signature = req.headers['x-hub-signature-256']
+  if (!signature) return false
+
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', process.env.FB_APP_SECRET)
+    .update(rawBody)
+    .digest('hex')
+
+  return signature === expected
 }
 
-// 获取最新贴文和留言
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
@@ -28,7 +36,6 @@ async function getLatestPost() {
   return json.data?.[0] || null
 }
 
-// 判断留言是否已处理
 async function isProcessed(commentId) {
   const { data } = await supabase
     .from(TABLE_NAME)
@@ -37,14 +44,10 @@ async function isProcessed(commentId) {
   return data.length > 0
 }
 
-// 标记留言为已处理
 async function markAsProcessed(commentId) {
-  await supabase
-    .from(TABLE_NAME)
-    .insert([{ comment_id: commentId }])
+  await supabase.from(TABLE_NAME).insert([{ comment_id: commentId }])
 }
 
-// 主处理逻辑
 async function processComments() {
   const post = await getLatestPost()
   if (!post || !post.comments?.data || post.comments.data.length === 0) {
@@ -60,25 +63,26 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ 自动回复“System On”
     if (message.includes('开始') || message.includes('on') || message.includes('晚上好')) {
       await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
         method: 'POST',
         body: new URLSearchParams({
           message: 'System On 晚上好，欢迎来到情人传奇🌿',
-          access_token: process.env.FB_ACCESS_TOKEN
-        })
+          access_token: process.env.FB_ACCESS_TOKEN,
+        }),
       })
       await markAsProcessed(comment.id)
       triggerCount++
     }
 
-    // ✅ 触发 Make Webhook（zzz）
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post_id: post.id, comment_id: comment.id })
+        body: JSON.stringify({
+          post_id: post.id,
+          comment_id: comment.id,
+        }),
       })
       await markAsProcessed(comment.id)
       triggerCount++
@@ -90,19 +94,11 @@ async function processComments() {
     : { message: 'Invalid comments. No trigger matched.' }
 }
 
-// ✅ 处理 Facebook 验证（GET）+ 留言推送（POST）
-module.exports = async (req, res) => {
-  // Webhook 验证阶段（GET 请求）
+export default async function handler(req, res) {
   if (req.method === 'GET') {
     const mode = req.query['hub.mode']
     const token = req.query['hub.verify_token']
     const challenge = req.query['hub.challenge']
-
-    console.log('🔍 Facebook Webhook 验证中...')
-    console.log('➡️ hub.mode:', mode)
-    console.log('➡️ hub.verify_token (from URL):', token)
-    console.log('➡️ FB_VERIFY_TOKEN (from env):', process.env.FB_VERIFY_TOKEN)
-
     if (mode === 'subscribe' && token === process.env.FB_VERIFY_TOKEN) {
       return res.status(200).send(challenge)
     } else {
@@ -110,17 +106,18 @@ module.exports = async (req, res) => {
     }
   }
 
-  // 留言监听阶段（POST 请求）
   if (req.method === 'POST') {
-    if (!verifyRequest(req)) {
+    const rawBody = await getRawBody(req)
+    if (!verifyRequest(req, rawBody)) {
       return res.status(403).json({ error: 'Signature verification failed' })
     }
 
     try {
+      req.body = JSON.parse(rawBody.toString('utf8'))
       const result = await processComments()
       res.status(200).json(result)
     } catch (error) {
-      console.error('❌ Error:', error)
+      console.error('Error:', error)
       res.status(500).json({ error: error.message })
     }
   } else {
