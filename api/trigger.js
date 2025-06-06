@@ -2,7 +2,6 @@ const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
 const fetch = require('node-fetch')
 
-// 初始化 Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
@@ -10,25 +9,16 @@ const supabase = createClient(
 const TABLE_NAME = "triggered_comments"
 const PAGE_ID = process.env.PAGE_ID
 
-// 请求验证函数
+// 验证 Meta 签名
 function verifyRequest(req) {
-  if (req.headers['x-hub-signature-256']) {
-    const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
-    const digest = hmac.update(JSON.stringify(req.body)).digest('hex')
-    return `sha256=${digest}` === req.headers['x-hub-signature-256']
-  }
-  return req.headers['x-cron-secret'] === process.env.CRON_SECRET
+  const signature = req.headers['x-hub-signature-256']
+  if (!signature) return false
+  const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
+  const digest = 'sha256=' + hmac.update(JSON.stringify(req.body)).digest('hex')
+  return signature === digest
 }
 
-// 获取最新贴文及留言
-async function getLatestPost() {
-  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
-  const res = await fetch(url)
-  const json = await res.json()
-  return json.data?.[0] || null
-}
-
-// 判断留言是否已处理
+// 判断是否已处理
 async function isProcessed(commentId) {
   const { data } = await supabase
     .from(TABLE_NAME)
@@ -37,78 +27,89 @@ async function isProcessed(commentId) {
   return data.length > 0
 }
 
-// 标记留言为已处理
+// 标记为已处理
 async function markAsProcessed(commentId) {
   await supabase
     .from(TABLE_NAME)
     .insert([{ comment_id: commentId }])
 }
 
-// 主处理函数
-async function processComments() {
-  const post = await getLatestPost()
-  if (!post || !post.comments?.data || post.comments.data.length === 0) {
-    return { message: 'No recent post or comments.' }
-  }
+// 主逻辑：处理一条留言
+async function handleComment(change) {
+  const comment = change.value
+  const message = comment.message?.toLowerCase() || ''
+  const fromId = comment.from?.id
+  const postId = comment.post_id
+  const commentId = comment.comment_id
 
-  let triggerCount = 0
+  if (!message || !fromId || !postId || !commentId) return 'Missing data'
+  if (fromId !== PAGE_ID) return 'Not from Page'
+  if (await isProcessed(commentId)) return 'Already processed'
 
-  for (const comment of post.comments.data) {
-    const isFromPage = comment.from?.id === PAGE_ID
-    const message = comment.message?.toLowerCase() || ''
-    const alreadyProcessed = await isProcessed(comment.id)
-
-    if (!isFromPage || alreadyProcessed) continue
-
-    // ✅ 关键词判断：开始 / on
-    if (message.includes('开始') || message.includes('on')) {
-      await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
-        method: 'POST',
-        body: new URLSearchParams({
-          message: 'System On 晚上好，欢迎来到情人传奇🌿',
-          access_token: process.env.FB_ACCESS_TOKEN
-        })
+  if (message.includes('开始') || message.includes('on')) {
+    await fetch(`https://graph.facebook.com/v19.0/${postId}/comments`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        message: 'System On 晚上好，欢迎来到情人传奇🌿',
+        access_token: process.env.FB_ACCESS_TOKEN
       })
-      await markAsProcessed(comment.id)
-      triggerCount++
-    }
-
-    // ✅ 判断 zzz，触发 Make Webhook
-    if (message.includes('zzz')) {
-      await fetch(process.env.WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post_id: post.id, comment_id: comment.id })
-      })
-      await markAsProcessed(comment.id)
-      triggerCount++
-    }
+    })
+    await markAsProcessed(commentId)
+    return 'System On sent'
   }
 
-  if (triggerCount > 0) {
-    return { triggered: triggerCount, post_id: post.id }
-  } else {
-    return { message: 'Invalid comments. No trigger matched.', post_id: post.id }
+  if (message.includes('zzz')) {
+    await fetch(process.env.WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ post_id: postId, comment_id: commentId })
+    })
+    await markAsProcessed(commentId)
+    return 'zzz triggered'
   }
+
+  return 'No keyword matched'
 }
 
-// ✅ 正确导出：符合 Vercel Serverless Function 格式
+// 导出函数（支持验证）
 module.exports = async (req, res) => {
-  const debugBypass = req.query.debug === 'true'
-
-  if (!verifyRequest(req)) {
-    if (!debugBypass) {
-      return res.status(403).json({ error: 'Unauthorized' })
+  // Meta webhook 验证用：首次接入时
+  if (req.method === 'GET') {
+    const mode = req.query['hub.mode']
+    const token = req.query['hub.verify_token']
+    const challenge = req.query['hub.challenge']
+    if (mode === 'subscribe' && token === process.env.VERIFY_TOKEN) {
+      return res.status(200).send(challenge)
     } else {
-      console.log('⚠️ Debug 模式已跳过验证')
+      return res.status(403).send('Verification failed')
     }
   }
 
-  try {
-    const result = await processComments()
-    res.status(200).json(result)
-  } catch (error) {
-    console.error('Error:', error)
-    res.status(500).json({ error: error.message })
+  // POST 请求处理留言推送
+  if (req.method === 'POST') {
+    if (!verifyRequest(req)) {
+      return res.status(403).json({ error: 'Invalid signature' })
+    }
+
+    try {
+      const entries = req.body.entry || []
+      const results = []
+
+      for (const entry of entries) {
+        for (const change of entry.changes || []) {
+          if (change.field === 'feed' && change.value?.item === 'comment') {
+            const result = await handleComment(change)
+            results.push(result)
+          }
+        }
+      }
+
+      res.status(200).json({ handled: results })
+    } catch (err) {
+      console.error('Error handling webhook:', err)
+      res.status(500).json({ error: err.message })
+    }
+  } else {
+    res.status(405).send('Method Not Allowed')
   }
 }
