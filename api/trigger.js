@@ -1,4 +1,3 @@
-// /api/trigger.js
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
@@ -7,24 +6,21 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
 )
-
 const TABLE_NAME = 'triggered_comments'
 const PAGE_ID = process.env.PAGE_ID
 
-function isAuthorized(req) {
+function verifyRequest(req) {
   const signature = req.headers['x-hub-signature-256']
   const cronSecret = req.headers['x-cron-secret']
-  const expectedSecret = process.env.X_CRON_SECRET
-
-  if (cronSecret && cronSecret === expectedSecret) return true
+  const expectedCron = process.env.CRON_SECRET
 
   if (signature) {
     const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
     const digest = hmac.update(JSON.stringify(req.body)).digest('hex')
-    return `sha256=${digest}` === signature
+    return signature === `sha256=${digest}`
   }
 
-  return false
+  return cronSecret === expectedCron
 }
 
 async function getLatestPost() {
@@ -49,10 +45,11 @@ async function markAsProcessed(commentId) {
 async function processComments() {
   const post = await getLatestPost()
   if (!post || !post.comments?.data || post.comments.data.length === 0) {
-    return { message: 'No post comments to process.' }
+    return { message: '✅ 系统正常运行，但暂无留言。' }
   }
 
   let triggerCount = 0
+  let responseMessages = []
 
   for (const comment of post.comments.data) {
     const isFromPage = comment.from?.id === PAGE_ID
@@ -61,18 +58,28 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    if (message.includes('开始') || message.includes('on') || message.includes('晚上好')) {
-      await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
-        method: 'POST',
-        body: new URLSearchParams({
-          message: 'System On 晚上好，欢迎来到情人传奇🌿',
-          access_token: process.env.FB_ACCESS_TOKEN,
-        }),
-      })
+    // ✅ “on”只触发一次
+    if (message.includes('on') || message.includes('开始')) {
+      const hasSystemOn = post.comments.data.some(
+        c => c.message?.includes('System On') && c.from?.id === PAGE_ID
+      )
+      if (!hasSystemOn) {
+        await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
+          method: 'POST',
+          body: new URLSearchParams({
+            message: 'System On 晚上好，欢迎来到情人传奇🌿',
+            access_token: process.env.FB_ACCESS_TOKEN,
+          }),
+        })
+        responseMessages.push(`✅ “on”留言已触发 System On`)
+      } else {
+        responseMessages.push(`⚠️ 已有 System On，无需重复触发`)
+      }
       await markAsProcessed(comment.id)
       triggerCount++
     }
 
+    // ✅ “zzz”留言，执行 webhook
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
@@ -80,31 +87,26 @@ async function processComments() {
         body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
       await markAsProcessed(comment.id)
+      responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
       triggerCount++
     }
   }
 
   return triggerCount > 0
-    ? { triggered: triggerCount, post_id: post.id }
-    : { message: 'Invalid comments. No trigger matched.', post_id: post.id }
+    ? { triggered: triggerCount, post_id: post.id, logs: responseMessages }
+    : { message: '✅ 系统运行正常，但无有效留言匹配关键词。', post_id: post.id }
 }
 
 export default async function handler(req, res) {
-  const debugBypass = req.query.debug === 'true'
-
-  if (!isAuthorized(req)) {
-    if (!debugBypass) {
-      return res.status(403).json({ error: 'Unauthorized (缺少签名或Cron密钥)' })
-    } else {
-      console.log('⚠️ Debug 模式跳过验证')
-    }
+  if (!verifyRequest(req)) {
+    return res.status(403).json({ error: 'Unauthorized（缺少签名或 Cron 密钥）' })
   }
 
   try {
     const result = await processComments()
     res.status(200).json(result)
-  } catch (error) {
-    console.error('Error:', error)
-    res.status(500).json({ error: error.message })
+  } catch (err) {
+    console.error('执行出错:', err)
+    res.status(500).json({ error: err.message })
   }
 }
