@@ -11,8 +11,8 @@ const PAGE_ID = process.env.PAGE_ID
 
 function verifyRequest(req) {
   const signature = req.headers['x-hub-signature-256']
-  const cronSecret = req.headers['x-cron-secret'] || req.headers['x-cron-secret'.toLowerCase()]
-  const expectedCron = process.env.X_CRON_SECRET
+  const cronSecret = req.headers['x-cron-secret']
+  const expectedCron = process.env.CRON_SECRET
 
   if (signature) {
     const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
@@ -58,7 +58,7 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ “on”只触发一次
+    // ✅ “on”留言仅触发一次 System On（原有逻辑）
     if (message.includes('on') || message.includes('开始')) {
       const hasSystemOn = post.comments.data.some(
         c => c.message?.includes('System On') && c.from?.id === PAGE_ID
@@ -79,16 +79,12 @@ async function processComments() {
       triggerCount++
     }
 
-    // ✅ “zzz”留言，执行 webhook（新增传递 message）
+    // ✅ 新增逻辑：主页留言 “zzz” → 每次留言都可触发一次 Webhook
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          post_id: post.id,
-          comment_id: comment.id,
-          message: comment.message || ''
-        }),
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
       await markAsProcessed(comment.id)
       responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
