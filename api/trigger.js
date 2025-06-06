@@ -1,5 +1,14 @@
+// pages/api/trigger.js
 import { createClient } from '@supabase/supabase-js'
+import crypto from 'crypto'
 import fetch from 'node-fetch'
+import getRawBody from 'raw-body'
+
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+}
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -7,6 +16,18 @@ const supabase = createClient(
 )
 const TABLE_NAME = process.env.SUPABASE_TABLE_NAME || 'triggered_comments'
 const PAGE_ID = process.env.PAGE_ID
+
+function verifyRequest(req, rawBody) {
+  const signature = req.headers['x-hub-signature-256']
+  if (!signature) return false
+
+  const expected = 'sha256=' + crypto
+    .createHmac('sha256', process.env.FB_APP_SECRET)
+    .update(rawBody)
+    .digest('hex')
+
+  return signature === expected
+}
 
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
@@ -34,7 +55,7 @@ async function processComments() {
   }
 
   let triggerCount = 0
-  const triggeredDetails = []
+  const triggeredComments = []
 
   for (const comment of post.comments.data) {
     const isFromPage = comment.from?.id === PAGE_ID
@@ -53,7 +74,7 @@ async function processComments() {
       })
       await markAsProcessed(comment.id)
       triggerCount++
-      triggeredDetails.push({ action: 'Reply System On', comment_id: comment.id, post_id: post.id })
+      triggeredComments.push({ type: 'SystemOn', comment_id: comment.id })
     }
 
     if (message.includes('zzz')) {
@@ -67,21 +88,43 @@ async function processComments() {
       })
       await markAsProcessed(comment.id)
       triggerCount++
-      triggeredDetails.push({ action: 'Trigger Webhook zzz', comment_id: comment.id, post_id: post.id })
+      triggeredComments.push({ type: 'ZZZ', comment_id: comment.id })
     }
   }
 
   return triggerCount > 0
-    ? { triggered: triggerCount, post_id: post.id, details: triggeredDetails }
-    : { message: 'Invalid comments. No trigger matched.', post_id: post.id }
+    ? { triggered: triggerCount, post_id: post.id, details: triggeredComments }
+    : { message: 'Invalid comments. No trigger matched.' }
 }
 
 export default async function handler(req, res) {
-  try {
-    const result = await processComments()
-    res.status(200).json(result)
-  } catch (error) {
-    console.error('Error:', error)
-    res.status(500).json({ error: error.message })
+  if (req.method === 'GET') {
+    const mode = req.query['hub.mode']
+    const token = req.query['hub.verify_token']
+    const challenge = req.query['hub.challenge']
+    if (mode === 'subscribe' && token === process.env.FB_VERIFY_TOKEN) {
+      return res.status(200).send(challenge)
+    } else {
+      return res.status(403).send('Verification failed')
+    }
+  }
+
+  if (req.method === 'POST') {
+    const rawBody = await getRawBody(req)
+    if (!verifyRequest(req, rawBody)) {
+      return res.status(403).json({ error: 'Signature verification failed' })
+    }
+
+    try {
+      req.body = JSON.parse(rawBody.toString('utf8'))
+      const result = await processComments()
+      res.status(200).json(result)
+    } catch (error) {
+      console.error('Error:', error)
+      res.status(500).json({ error: error.message })
+    }
+  } else {
+    res.status(405).send('Method Not Allowed')
   }
 }
+
