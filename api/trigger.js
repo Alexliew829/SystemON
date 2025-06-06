@@ -1,9 +1,7 @@
-// trigger.js
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
 
-// 初始化 Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
@@ -11,26 +9,29 @@ const supabase = createClient(
 const TABLE_NAME = 'triggered_comments'
 const PAGE_ID = process.env.PAGE_ID
 
-// 安全验证：支持 Facebook Webhook 或 EasyCron header
+// 验证请求是否来自 Facebook 或 Cron
 function verifyRequest(req) {
-  const fbSig = req.headers['x-hub-signature-256']
+  const fbSignature = req.headers['x-hub-signature-256']
   const cronSecret = req.headers['x-cron-secret']
-  const validCron = cronSecret === process.env.CRON_SECRET
 
-  if (fbSig) {
-    const digest =
-      'sha256=' +
-      crypto
-        .createHmac('sha256', process.env.FB_APP_SECRET)
-        .update(JSON.stringify(req.body))
-        .digest('hex')
-    return fbSig === digest
+  // Cron 验证
+  if (cronSecret && cronSecret === process.env.X_CRON_SECRET) {
+    return true
   }
 
-  return validCron
+  // Facebook 验证
+  if (fbSignature && req.body) {
+    const expected = 'sha256=' + crypto
+      .createHmac('sha256', process.env.FB_APP_SECRET)
+      .update(JSON.stringify(req.body))
+      .digest('hex')
+    return fbSignature === expected
+  }
+
+  return false
 }
 
-// 获取最新贴文和留言
+// 获取最近一篇贴文及留言
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
@@ -38,7 +39,7 @@ async function getLatestPost() {
   return json.data?.[0] || null
 }
 
-// 留言是否已处理
+// 判断留言是否已处理
 async function isProcessed(commentId) {
   const { data } = await supabase
     .from(TABLE_NAME)
@@ -47,7 +48,7 @@ async function isProcessed(commentId) {
   return data.length > 0
 }
 
-// 标记为已处理
+// 标记留言为已处理
 async function markAsProcessed(commentId) {
   await supabase.from(TABLE_NAME).insert([{ comment_id: commentId }])
 }
@@ -55,11 +56,12 @@ async function markAsProcessed(commentId) {
 // 主处理逻辑
 async function processComments() {
   const post = await getLatestPost()
-  if (!post || !post.comments?.data || post.comments.data.length === 0) {
-    return { message: '✅ 无贴文或留言，系统正常运行。' }
+  if (!post || !post.comments?.data?.length) {
+    return { message: 'No post comments found.' }
   }
 
   let triggerCount = 0
+  const summary = []
 
   for (const comment of post.comments.data) {
     const isFromPage = comment.from?.id === PAGE_ID
@@ -68,7 +70,7 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    if (message.includes('开始') || message.includes('on') || message.includes('晚上好')) {
+    if (message.includes('on') || message.includes('开始')) {
       await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
         method: 'POST',
         body: new URLSearchParams({
@@ -78,6 +80,7 @@ async function processComments() {
       })
       await markAsProcessed(comment.id)
       triggerCount++
+      summary.push({ action: 'replied: System On', comment_id: comment.id })
     }
 
     if (message.includes('zzz')) {
@@ -88,15 +91,16 @@ async function processComments() {
       })
       await markAsProcessed(comment.id)
       triggerCount++
+      summary.push({ action: 'triggered: Make Webhook', comment_id: comment.id })
     }
   }
 
   return triggerCount > 0
-    ? { triggered: triggerCount, post_id: post.id }
-    : { message: '无匹配留言（无触发）', post_id: post.id }
+    ? { triggered: triggerCount, post_id: post.id, summary }
+    : { message: 'No matched comment. System running OK ✅', post_id: post.id }
 }
 
-// 主入口
+// Webhook 接收入口
 export default async function handler(req, res) {
   if (!verifyRequest(req)) {
     return res.status(403).json({ error: 'Unauthorized (缺少签名或Cron密钥)' })
@@ -104,9 +108,9 @@ export default async function handler(req, res) {
 
   try {
     const result = await processComments()
-    return res.status(200).json(result)
-  } catch (err) {
-    console.error('❌ 执行错误:', err)
-    return res.status(500).json({ error: err.message })
+    res.status(200).json(result)
+  } catch (error) {
+    console.error('处理出错:', error)
+    res.status(500).json({ error: error.message })
   }
 }
