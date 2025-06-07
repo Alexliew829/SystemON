@@ -22,7 +22,7 @@ function verifyRequest(req) {
 }
 
 async function getLatestPost() {
-  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(10){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
+  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(20){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
   const res = await fetch(url)
   const json = await res.json()
   return json.data?.[0] || null
@@ -65,10 +65,11 @@ export default async function handler(req, res) {
   for (const comment of comments) {
     const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
+    const commentId = comment.id
 
     // ✅ System On 关键词触发（仅主页）
     if (isFromPage && (message.includes('on') || message.includes('开始'))) {
-      const alreadyProcessed = await isProcessed(comment.id)
+      const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
         if (!hasSystemOn) {
           const response = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
@@ -89,27 +90,27 @@ export default async function handler(req, res) {
         } else {
           details.push('✅ 已留言过 System On，不重复触发')
         }
-        await markAsProcessed(comment.id)
+        await markAsProcessed(commentId)
       } else {
-        details.push(`⏭ 已跳过重复 System On 留言 ID ${comment.id}`)
+        details.push(`⏭ 已跳过重复 System On 留言 ID ${commentId}`)
       }
       continue
     }
 
     // ✅ zzz 留言触发倒数（仅主页），每条 comment.id 只触发一次
     if (isFromPage && message.includes('zzz')) {
-      const alreadyProcessed = await isProcessed(comment.id)
+      const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
+        await markAsProcessed(commentId)
         await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
+          body: JSON.stringify({ post_id: post.id, comment_id: commentId }),
         })
-        await markAsProcessed(comment.id)
         triggeredZzz++
-        details.push(`✅ 已触发倒数：zzz 留言 ID ${comment.id}`)
+        details.push(`✅ 已触发倒数：zzz 留言 ID ${commentId}`)
       } else {
-        details.push(`⏭ 已跳过重复的 zzz 留言 ID ${comment.id}`)
+        details.push(`⏭ 已跳过重复的 zzz 留言 ID ${commentId}`)
       }
     }
   }
