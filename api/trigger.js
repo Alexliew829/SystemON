@@ -1,6 +1,3 @@
-# 重新保存 trigger.js 文件（确保无非法字符或错误引号）
-
-trigger_code = """\
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
@@ -90,7 +87,7 @@ export default async function handler(req, res) {
     const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
 
-    // ✅ System On：原逻辑不动
+    // ✅ System On 原逻辑保留
     if (isFromPage && (message.includes('on') || message.includes('开始'))) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
@@ -120,7 +117,7 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言：新增 from_id 字段供 Make 判断是否主页触发
+    // ✅ zzz 留言触发：支持传递 from_id 给 Make 判断身份
     if (!zzzTriggeredThisRun && isFromPage && message.includes('zzz')) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
@@ -163,10 +160,3 @@ export default async function handler(req, res) {
     },
   })
 }
-"""
-
-# 保存为文件
-from pathlib import Path
-path = Path("/mnt/data/trigger_fixed.js")
-path.write_text(trigger_code, encoding="utf-8")
-path.name
