@@ -37,7 +37,7 @@ async function isProcessed(commentId) {
   return data && data.length > 0
 }
 
-// ✅ 只增强写入：加入 local_time（马来西亚时间），其他不动
+// ✅ 加入 local_time
 async function markAsProcessed(commentId) {
   if (!commentId || typeof commentId !== 'string') return
 
@@ -49,7 +49,15 @@ async function markAsProcessed(commentId) {
     .from(TABLE_NAME)
     .insert([{ comment_id: commentId, local_time: localTime }])
 
-  if (error) console.error('⚠️ Supabase 写入失败:', error)
+  if (error) {
+    if (error.code === '23505') {
+      console.log(`⏭ 已存在，不重复写入 comment_id: ${commentId}`)
+    } else {
+      console.error('⚠️ Supabase 写入失败:', error)
+    }
+  } else {
+    console.log(`✅ 已写入 comment_id: ${commentId}`)
+  }
 }
 
 export default async function handler(req, res) {
@@ -75,11 +83,12 @@ export default async function handler(req, res) {
       console.error('❌ 无效评论，跳过该条:', comment)
       continue
     }
+
     const commentId = comment.id
     const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
 
-    // ✅ System On 完美版逻辑：主页留言 "on" 或 "开始"，系统回复一次
+    // ✅ System On 触发一次
     if (isFromPage && (message.includes('on') || message.includes('开始'))) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
@@ -109,17 +118,21 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言触发（主页留言，每轮仅触发一次）
+    // ✅ zzz 留言触发（先触发，再写入）
     if (!zzzTriggeredThisRun && isFromPage && message.includes('zzz')) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
         console.log('准备触发 zzz，留言 ID:', commentId)
-        await markAsProcessed(commentId)
+
+        // ✅ 先触发 webhook
         await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ post_id: post.id, comment_id: commentId }),
         })
+
+        // ✅ 然后写入 Supabase 防重复
+        await markAsProcessed(commentId)
         triggeredZzz++
         zzzTriggeredThisRun = true
         details.push(`✅ 已触发倒数：zzz 留言 ID ${commentId}`)
