@@ -66,7 +66,9 @@ export default async function handler(req, res) {
     const isFromPage = comment.from?.id === PAGE_ID
     const message = (comment.message || '').toLowerCase()
     const alreadyProcessed = await isProcessed(comment.id)
-    if (!isFromPage || alreadyProcessed) continue  // Only process home page comments that are not already processed
+
+    // ✅ 只处理主页留言且未处理的留言
+    if (!isFromPage || alreadyProcessed) continue
 
     // ✅ System On 关键词触发
     if (message.includes('on') || message.includes('开始')) {
@@ -93,14 +95,17 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言触发倒数（主页留言才会触发），每条 comment.id 只触发一次
+    // ✅ zzz 留言触发倒数，只触发一次（只处理主页留言）
     if (message.includes('zzz') && !alreadyProcessed) {
       await fetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
-      await markAsProcessed(comment.id)  // Mark this comment as processed
+      
+      // Mark as processed immediately after triggering
+      await markAsProcessed(comment.id)
+
       triggeredZzz++
       details.push(`✅ 已触发倒数：zzz 留言 ID ${comment.id}`)
     }
