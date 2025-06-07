@@ -58,6 +58,19 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
+    // ✅ “zzz”留言，触发倒数 webhook（每次新留言都可触发一次）
+    if (message.includes('zzz')) {
+      await fetch(process.env.WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
+      })
+      await markAsProcessed(comment.id)
+      responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
+      triggerCount++
+      continue // 防止触发下方“on”逻辑
+    }
+
     // ✅ “on”只触发一次
     if (message.includes('on') || message.includes('开始')) {
       const hasSystemOn = post.comments.data.some(
@@ -76,18 +89,6 @@ async function processComments() {
         responseMessages.push(`⚠️ 已有 System On，无需重复触发`)
       }
       await markAsProcessed(comment.id)
-      triggerCount++
-    }
-
-    // ✅ “zzz”留言，触发倒数 webhook（每次新留言都可触发一次）
-    if (message.includes('zzz')) {
-      await fetch(process.env.WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
-      })
-      await markAsProcessed(comment.id)
-      responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
       triggerCount++
     }
   }
