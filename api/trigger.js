@@ -66,10 +66,10 @@ export default async function handler(req, res) {
     const isFromPage = comment.from?.id === PAGE_ID
     const message = (comment.message || '').toLowerCase()
     const alreadyProcessed = await isProcessed(comment.id)
-    if (!isFromPage) continue  // Only process comments from the page (not visitors)
+    if (!isFromPage || alreadyProcessed) continue  // Only process home page comments that are not already processed
 
     // ✅ System On 关键词触发
-    if (isFromPage && (message.includes('on') || message.includes('开始')) && !alreadyProcessed) {
+    if (message.includes('on') || message.includes('开始')) {
       if (!hasSystemOn) {
         const response = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
           method: 'POST',
@@ -93,14 +93,14 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言触发倒数（主页留言才会触发）
+    // ✅ zzz 留言触发倒数（主页留言才会触发），每条 comment.id 只触发一次
     if (message.includes('zzz') && !alreadyProcessed) {
       await fetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
-      await markAsProcessed(comment.id)
+      await markAsProcessed(comment.id)  // Mark this comment as processed
       triggeredZzz++
       details.push(`✅ 已触发倒数：zzz 留言 ID ${comment.id}`)
     }
