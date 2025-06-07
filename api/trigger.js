@@ -22,7 +22,7 @@ function verifyRequest(req) {
 }
 
 async function getLatestPost() {
-  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${FB_ACCESS_TOKEN}`
+  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
   const res = await fetch(url)
   const json = await res.json()
   return json.data?.[0] || null
@@ -65,9 +65,12 @@ export default async function handler(req, res) {
   for (const comment of comments) {
     const isFromPage = comment.from?.id === PAGE_ID
     const message = (comment.message || '').toLowerCase()
+
+    // ✅ 跳过重复处理的留言
     const alreadyProcessed = await isProcessed(comment.id)
     if (!isFromPage || alreadyProcessed) continue
 
+    // ✅ System On 关键词触发
     if (message.includes('on') || message.includes('开始')) {
       if (!hasSystemOn) {
         const response = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
@@ -91,6 +94,7 @@ export default async function handler(req, res) {
       await markAsProcessed(comment.id)
     }
 
+    // ✅ zzz 留言触发倒数，只触发一次
     if (message.includes('zzz')) {
       await fetch(WEBHOOK_URL, {
         method: 'POST',
