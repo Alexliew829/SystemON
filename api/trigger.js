@@ -42,7 +42,29 @@ async function markAsProcessed(commentId) {
   await supabase.from(TABLE_NAME).insert([{ comment_id: commentId }])
 }
 
-async function processComments() {
+async function manualStartup() {
+  const post = await getLatestPost()
+  if (!post) return { error: '找不到贴文' }
+
+  const hasSystemOn = post.comments?.data?.some(
+    c => c.message?.includes('System On') && c.from?.id === PAGE_ID
+  )
+
+  if (!hasSystemOn) {
+    await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        message: 'System On 晚上好，欢迎来到情人传奇🌿',
+        access_token: process.env.FB_ACCESS_TOKEN,
+      }),
+    })
+    return { message: '✅ 已留言 System On', post_id: post.id }
+  } else {
+    return { message: '⚠️ 已有 System On 留言，无需重复', post_id: post.id }
+  }
+}
+
+async function processZzzComments() {
   const post = await getLatestPost()
   if (!post || !post.comments?.data || post.comments.data.length === 0) {
     return { message: '✅ 系统正常运行，但暂无留言。' }
@@ -58,7 +80,6 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ “zzz”留言，触发倒数 webhook（每次新留言都可触发一次）
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
@@ -67,33 +88,6 @@ async function processComments() {
       })
       await markAsProcessed(comment.id)
       responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
-      triggerCount++
-      continue // 防止再误触发 System On
-    }
-
-    // ✅ “on”只触发一次
-    if (message.includes('on') || message.includes('开始')) {
-      const hasSystemOn = post.comments.data.some(
-        c => c.message?.includes('System On') && c.from?.id === PAGE_ID
-      )
-      if (!hasSystemOn) {
-        const res = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
-          method: 'POST',
-          body: new URLSearchParams({
-            message: 'System On 晚上好，欢迎来到情人传奇🌿',
-            access_token: process.env.FB_ACCESS_TOKEN,
-          }),
-        })
-        const result = await res.json()
-        if (!res.ok) {
-          responseMessages.push(`❌ 留言失败: ${result.error?.message || '未知错误'}`)
-        } else {
-          responseMessages.push(`✅ “on”留言已触发 System On`)
-        }
-      } else {
-        responseMessages.push(`⚠️ 已有 System On，无需重复触发`)
-      }
-      await markAsProcessed(comment.id)
       triggerCount++
     }
   }
@@ -109,8 +103,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const result = await processComments()
-    res.status(200).json(result)
+    const triggerType = req.query?.mode
+
+    if (triggerType === 'start') {
+      const result = await manualStartup()
+      res.status(200).json(result)
+    } else {
+      const result = await processZzzComments()
+      res.status(200).json(result)
+    }
   } catch (err) {
     console.error('执行出错:', err)
     res.status(500).json({ error: err.message })
