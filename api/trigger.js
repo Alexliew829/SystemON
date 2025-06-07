@@ -11,8 +11,8 @@ const PAGE_ID = process.env.PAGE_ID
 
 function verifyRequest(req) {
   const signature = req.headers['x-hub-signature-256']
-  const cronSecret = req.headers['x-cron-secret'] || req.headers['x-cron-secret'.toLowerCase()]
-  const expectedCron = process.env.CRON_SECRET || process.env.X_CRON_SECRET
+  const cronSecret = req.headers['x-cron-secret']
+  const expectedCron = process.env.CRON_SECRET
 
   if (signature) {
     const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
@@ -53,13 +53,13 @@ async function processComments() {
 
   for (const comment of post.comments.data) {
     const isFromPage = comment.from?.id === PAGE_ID
-    const message = comment.message?.trim().toLowerCase() || ''
+    const message = comment.message?.toLowerCase() || ''
     const alreadyProcessed = await isProcessed(comment.id)
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ "on"触发 System On，只要留言是 on 或 开始（精确匹配）
-    if (['on', '开始'].includes(message)) {
+    // ✅ “on”只触发一次
+    if (message.includes('on') || message.includes('开始')) {
       const hasSystemOn = post.comments.data.some(
         c => c.message?.includes('System On') && c.from?.id === PAGE_ID
       )
@@ -79,30 +79,30 @@ async function processComments() {
       triggerCount++
     }
 
-    // ✅ “zzz”留言触发 Webhook，每次留言都可触发一次
-    if (message === 'zzz') {
+    // ✅ “zzz”留言，触发倒数 webhook（每次新留言都可触发一次）
+    if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
       await markAsProcessed(comment.id)
-      responseMessages.push(`✅ “zzz”留言已触发倒数`)
+      responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
       triggerCount++
     }
   }
 
   return triggerCount > 0
     ? { triggered: triggerCount, post_id: post.id, logs: responseMessages }
-    : { message: '✅ 系统运行正常，但无有效留言匹配关键词。', post_id: post?.id }
+    : { message: '✅ 系统运行正常，但无有效留言匹配关键词。', post_id: post.id }
 }
 
 export default async function handler(req, res) {
-  try {
-    if (!verifyRequest(req)) {
-      return res.status(403).json({ error: 'Unauthorized（缺少签名或 Cron 密钥）' })
-    }
+  if (!verifyRequest(req)) {
+    return res.status(403).json({ error: 'Unauthorized（缺少签名或 Cron 密钥）' })
+  }
 
+  try {
     const result = await processComments()
     res.status(200).json(result)
   } catch (err) {
