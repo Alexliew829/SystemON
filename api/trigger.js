@@ -58,7 +58,7 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ 如果是 "zzz"，直接触发 webhook，不再继续判断
+    // ✅ “zzz”留言，触发倒数 webhook（每次新留言都可触发一次）
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
@@ -68,27 +68,27 @@ async function processComments() {
       await markAsProcessed(comment.id)
       responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
       triggerCount++
-      continue // 防止继续进入 System On 判断
+      continue // 防止再误触发 System On
     }
 
-    // ✅ “on”或“开始”只触发一次 System On 留言
+    // ✅ “on”只触发一次
     if (message.includes('on') || message.includes('开始')) {
       const hasSystemOn = post.comments.data.some(
         c => c.message?.includes('System On') && c.from?.id === PAGE_ID
       )
       if (!hasSystemOn) {
-        const replyRes = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
+        const res = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
           method: 'POST',
           body: new URLSearchParams({
             message: 'System On 晚上好，欢迎来到情人传奇🌿',
             access_token: process.env.FB_ACCESS_TOKEN,
           }),
         })
-        const replyJson = await replyRes.json()
-        if (replyJson.id) {
-          responseMessages.push(`✅ “on”留言已触发 System On`)
+        const result = await res.json()
+        if (!res.ok) {
+          responseMessages.push(`❌ 留言失败: ${result.error?.message || '未知错误'}`)
         } else {
-          responseMessages.push(`❌ System On 留言失败: ${JSON.stringify(replyJson)}`)
+          responseMessages.push(`✅ “on”留言已触发 System On`)
         }
       } else {
         responseMessages.push(`⚠️ 已有 System On，无需重复触发`)
