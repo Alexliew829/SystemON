@@ -1,3 +1,6 @@
+# 生成完整 trigger.js 文件，加入 from_id 字段支持 Make 判断留言者身份
+
+trigger_code = """
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
@@ -117,7 +120,7 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言：加入 message 与 type 字段给 Make，用于 Filter 控制
+    // ✅ zzz 留言：新增 from_id 字段供 Make 判断是否主页触发
     if (!zzzTriggeredThisRun && isFromPage && message.includes('zzz')) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
@@ -130,7 +133,8 @@ export default async function handler(req, res) {
             post_id: post.id,
             comment_id: commentId,
             message: message,
-            type: 'zzz'
+            type: 'zzz',
+            from_id: comment.from?.id
           }),
         })
 
@@ -159,3 +163,9 @@ export default async function handler(req, res) {
     },
   })
 }
+"""
+
+# 保存为文件
+path = Path("/mnt/data/trigger_with_from_id.js")
+path.write_text(trigger_code, encoding="utf-8")
+path.name
