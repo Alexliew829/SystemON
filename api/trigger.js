@@ -63,15 +63,12 @@ export default async function handler(req, res) {
   let details = []
 
   for (const comment of comments) {
+    const message = (comment.message || '').toLowerCase().trim()
     const isFromPage = comment.from?.id === PAGE_ID
-    const message = (comment.message || '').toLowerCase()
     const alreadyProcessed = await isProcessed(comment.id)
 
-    // ✅ 只处理主页留言且未处理的留言
-    if (!isFromPage || alreadyProcessed) continue
-
-    // ✅ System On 关键词触发
-    if (message.includes('on') || message.includes('开始')) {
+    // ✅ System On 关键词触发（仅主页）
+    if (isFromPage && (message.includes('system on') || message.includes('开始')) && !alreadyProcessed) {
       if (!hasSystemOn) {
         const response = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
           method: 'POST',
@@ -95,20 +92,24 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言触发倒数（主页留言才会触发），每条 comment.id 只触发一次
-    if (message.includes('zzz') && !alreadyProcessed) {
-      // 调用 Webhook 执行倒数
-      await fetch(WEBHOOK_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
-      })
-      
-      // 标记该留言已处理
-      await markAsProcessed(comment.id)
-
-      triggeredZzz++
-      details.push(`✅ 已触发倒数：zzz 留言 ID ${comment.id}`)
+    // ✅ zzz 留言触发（仅主页，不区分大小写，每个独立时间点触发一次）
+    if (isFromPage && message === 'zzz') {
+      if (!alreadyProcessed) {
+        await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            post_id: post.id, 
+            comment_id: comment.id,
+            created_time: comment.created_time
+          }),
+        })
+        await markAsProcessed(comment.id)
+        triggeredZzz++
+        details.push(`✅ 触发 zzz 倒数（时间: ${comment.created_time}）`)
+      } else {
+        details.push(`⏭ 已处理过该条 zzz 留言（ID: ${comment.id}）`)
+      }
     }
   }
 
