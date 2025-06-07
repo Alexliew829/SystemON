@@ -42,11 +42,20 @@ async function markAsProcessed(commentId) {
   await supabase.from(TABLE_NAME).insert([{ comment_id: commentId }])
 }
 
-async function manualStartup() {
+async function processComments() {
   const post = await getLatestPost()
-  if (!post) return { error: '找不到贴文' }
+  if (!post || !post.comments?.data) {
+    return { message: '✅ 系统正常运行，但暂无留言。' }
+  }
 
-  const hasSystemOn = post.comments?.data?.some(
+  const postTime = new Date(post.created_time)
+  const now = new Date()
+  const diffMinutes = (now - postTime) / 60000
+  if (diffMinutes > 30) {
+    return { message: '⚠️ 最新贴文超过 30 分钟，系统未启动，请确认是否已开播。' }
+  }
+
+  let hasSystemOn = post.comments.data.some(
     c => c.message?.includes('System On') && c.from?.id === PAGE_ID
   )
 
@@ -58,16 +67,7 @@ async function manualStartup() {
         access_token: process.env.FB_ACCESS_TOKEN,
       }),
     })
-    return { message: '✅ 已留言 System On', post_id: post.id }
-  } else {
-    return { message: '⚠️ 已有 System On 留言，无需重复', post_id: post.id }
-  }
-}
-
-async function processZzzComments() {
-  const post = await getLatestPost()
-  if (!post || !post.comments?.data || post.comments.data.length === 0) {
-    return { message: '✅ 系统正常运行，但暂无留言。' }
+    hasSystemOn = true
   }
 
   let triggerCount = 0
@@ -80,6 +80,7 @@ async function processZzzComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
+    // ✅ 只处理“zzz”关键词，触发 Make Webhook
     if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
@@ -89,6 +90,8 @@ async function processZzzComments() {
       await markAsProcessed(comment.id)
       responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
       triggerCount++
+    } else {
+      await markAsProcessed(comment.id)
     }
   }
 
@@ -103,15 +106,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const triggerType = req.query?.mode
-
-    if (triggerType === 'start') {
-      const result = await manualStartup()
-      res.status(200).json(result)
-    } else {
-      const result = await processZzzComments()
-      res.status(200).json(result)
-    }
+    const result = await processComments()
+    res.status(200).json(result)
   } catch (err) {
     console.error('执行出错:', err)
     res.status(500).json({ error: err.message })
