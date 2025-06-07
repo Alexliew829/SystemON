@@ -22,7 +22,7 @@ function verifyRequest(req) {
 }
 
 async function getLatestPost() {
-  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(10){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
+  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(20){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
   const res = await fetch(url)
   const json = await res.json()
   return json.data?.[0] || null
@@ -67,14 +67,13 @@ export default async function handler(req, res) {
   let details = []
 
   for (const comment of comments) {
-    const message = (comment.message || '').toLowerCase()
-    const isFromPage = comment.from?.id === PAGE_ID
-    const commentId = comment.id
-
-    if (!commentId) {
-      console.error('‼️ 无 comment.id，跳过该留言:', comment)
+    if (!comment || !comment.id || typeof comment.id !== 'string') {
+      console.error('❌ 无效评论，跳过该条:', comment)
       continue
     }
+    const commentId = comment.id
+    const message = (comment.message || '').toLowerCase()
+    const isFromPage = comment.from?.id === PAGE_ID
 
     // ✅ System On 关键词触发（仅主页）
     if (isFromPage && (message.includes('on') || message.includes('开始'))) {
