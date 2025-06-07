@@ -10,7 +10,6 @@ const TABLE_NAME = 'triggered_comments'
 const CRON_SECRET = process.env.CRON_SECRET
 const FB_APP_SECRET = process.env.FB_APP_SECRET
 
-// 验证请求（保持不变）
 function verifyRequest(req) {
   const signature = req.headers['x-hub-signature-256']
   const cronSecret = req.headers['x-cron-secret']
@@ -22,7 +21,6 @@ function verifyRequest(req) {
   return cronSecret === CRON_SECRET
 }
 
-// 获取最新贴文（保持不变）
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
   const res = await fetch(url)
@@ -30,7 +28,6 @@ async function getLatestPost() {
   return json.data?.[0] || null
 }
 
-// 检查是否已处理（保持不变）
 async function isProcessed(commentId) {
   if (!commentId || typeof commentId !== 'string') return true
   const { data } = await supabase
@@ -40,7 +37,6 @@ async function isProcessed(commentId) {
   return data && data.length > 0
 }
 
-// 标记为已处理（保持不变）
 async function markAsProcessed(commentId) {
   if (!commentId || typeof commentId !== 'string') return
   const { error } = await supabase
@@ -66,13 +62,16 @@ export default async function handler(req, res) {
   let triggeredZzz = 0
   let details = []
 
-  // ======================= 【System On 逻辑 - 完全保持不变】 =======================
   for (const comment of comments) {
-    const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
+    const message = (comment.message || '').toLowerCase()
     const alreadyProcessed = await isProcessed(comment.id)
 
-    if (isFromPage && (message.includes('on') || message.includes('开始')) && !alreadyProcessed) {
+    // ✅ 只处理主页留言且未处理的留言
+    if (!isFromPage || alreadyProcessed) continue
+
+    // ✅ System On 关键词触发
+    if (message.includes('on') || message.includes('开始')) {
       if (!hasSystemOn) {
         const response = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
           method: 'POST',
@@ -95,28 +94,21 @@ export default async function handler(req, res) {
       await markAsProcessed(comment.id)
       continue
     }
-  }
 
-  // ======================= 【zzz 逻辑 - 仅修改这部分】 =======================
-  for (const comment of comments) {
-    const message = (comment.message || '').toLowerCase().trim()
-    const isFromPage = comment.from?.id === PAGE_ID
-    const alreadyProcessed = await isProcessed(comment.id)
-
-    // ✅ zzz 触发（严格匹配，不区分大小写）
-    if (isFromPage && message === 'zzz' && !alreadyProcessed) {
+    // ✅ zzz 留言触发倒数（主页留言才会触发），每条 comment.id 只触发一次
+    if (message.includes('zzz') && !alreadyProcessed) {
+      // 调用 Webhook 执行倒数
       await fetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          post_id: post.id, 
-          comment_id: comment.id,
-          created_time: comment.created_time 
-        }),
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
+      
+      // 标记该留言已处理
       await markAsProcessed(comment.id)
+
       triggeredZzz++
-      details.push(`✅ 触发 zzz 倒数（时间: ${comment.created_time}）`)
+      details.push(`✅ 已触发倒数：zzz 留言 ID ${comment.id}`)
     }
   }
 
