@@ -22,7 +22,7 @@ function verifyRequest(req) {
 }
 
 async function getLatestPost() {
-  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(20){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
+  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
   const res = await fetch(url)
   const json = await res.json()
   return json.data?.[0] || null
@@ -37,22 +37,11 @@ async function isProcessed(commentId) {
   return data && data.length > 0
 }
 
-async function markAsProcessed(commentId, postId = null, type = null) {
+async function markAsProcessed(commentId) {
   if (!commentId || typeof commentId !== 'string') return
-
-  const localTime = new Date().toLocaleString('sv-SE', {
-    timeZone: 'Asia/Kuala_Lumpur'
-  })
-
   const { error } = await supabase
     .from(TABLE_NAME)
-    .insert([{
-      comment_id: commentId,
-      post_id: postId,
-      type,
-      local_time: localTime
-    }])
-
+    .insert([{ comment_id: commentId }])
   if (error) console.error('⚠️ Supabase 写入失败:', error)
 }
 
@@ -65,25 +54,22 @@ export default async function handler(req, res) {
   if (!post) return res.status(200).json({ message: '❌ 找不到最新贴文' })
 
   const comments = post.comments?.data || []
-  const details = []
+  const hasSystemOn = comments.some(
+    c => (c.message || '').toLowerCase().includes('system on') && c.from?.id === PAGE_ID
+  )
+
   let triggeredSystemOn = false
   let triggeredZzz = 0
-  let zzzTriggeredThisRun = false
+  let details = []
 
   for (const comment of comments) {
-    if (!comment || !comment.id || typeof comment.id !== 'string') {
-      console.error('❌ 无效评论，跳过该条:', comment)
-      continue
-    }
-
-    const commentId = comment.id
     const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
+    const alreadyProcessed = await isProcessed(comment.id)
 
-    // ✅ System On
-    if (isFromPage && (message.includes('on') || message.includes('开始'))) {
-      const alreadyProcessed = await isProcessed(commentId)
-      if (!alreadyProcessed) {
+    // ✅ System On 关键词触发（仅主页）
+    if (isFromPage && (message.includes('on') || message.includes('开始')) && !alreadyProcessed) {
+      if (!hasSystemOn) {
         const response = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -93,43 +79,43 @@ export default async function handler(req, res) {
           }),
         })
         const json = await response.json()
-        if (!json.error) {
-          triggeredSystemOn = true
-          details.push(`✅ 已触发 System On，留言 ID ${commentId}`)
+        if (json.error) {
+          details.push('❌ 留言失败 System On')
         } else {
-          details.push(`❌ 留言失败 System On：${JSON.stringify(json.error)}`)
+          details.push('✅ 触发留言 System On')
+          triggeredSystemOn = true
         }
-        await markAsProcessed(commentId, post.id, 'system_on')
       } else {
-        details.push(`⏭ 已跳过重复 System On 留言 ID ${commentId}`)
+        details.push('✅ 已留言过 System On，不重复触发')
       }
+      await markAsProcessed(comment.id)
       continue
     }
 
-    // ✅ zzz 触发倒数（只触发一次）
-    if (!zzzTriggeredThisRun && isFromPage && message.includes('zzz')) {
-      const alreadyProcessed = await isProcessed(commentId)
+    // ✅ zzz 留言触发倒数（仅主页），每条 comment.id 只触发一次
+    if (isFromPage && message.includes('zzz')) {
       if (!alreadyProcessed) {
         await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ post_id: post.id, comment_id: commentId }),
+          body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
         })
-        await markAsProcessed(commentId, post.id, 'zzz')
+        await markAsProcessed(comment.id)
         triggeredZzz++
-        zzzTriggeredThisRun = true
-        details.push(`✅ 已触发倒数 zzz，留言 ID ${commentId}`)
+        details.push(`✅ 已触发倒数：zzz 留言 ID ${comment.id}`)
       } else {
-        details.push(`⏭ 已跳过重复 zzz 留言 ID ${commentId}`)
+        details.push(`⏭ 已跳过重复的 zzz 留言 ID ${comment.id}`)
       }
     }
   }
 
+  const responseMessage =
+    triggeredSystemOn || triggeredZzz > 0
+      ? '✅ 系统运行完毕'
+      : '✅ 系统运行完毕，没有匹配留言'
+
   return res.status(200).json({
-    message:
-      triggeredSystemOn || triggeredZzz > 0
-        ? '✅ 系统运行完毕'
-        : '✅ 系统运行完毕，没有匹配留言',
+    message: responseMessage,
     details,
     post_id: post.id,
     triggered: {
