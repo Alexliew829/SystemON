@@ -37,13 +37,12 @@ async function isProcessed(commentId) {
   return data && data.length > 0
 }
 
-// ✅ 加入 local_time 字段（马来西亚时间）
 async function markAsProcessed(commentId, postId = null, type = null) {
   if (!commentId || typeof commentId !== 'string') return
 
   const localTime = new Date().toLocaleString('sv-SE', {
     timeZone: 'Asia/Kuala_Lumpur'
-  }) // 格式：2025-06-08 00:25:33
+  })
 
   const { error } = await supabase
     .from(TABLE_NAME)
@@ -81,7 +80,7 @@ export default async function handler(req, res) {
     const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
 
-    // ✅ System On 留言判断（主页留言“on”或“开始”）
+    // ✅ System On
     if (isFromPage && (message.includes('on') || message.includes('开始'))) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
@@ -94,11 +93,11 @@ export default async function handler(req, res) {
           }),
         })
         const json = await response.json()
-        if (json.error) {
-          details.push('❌ 留言失败 System On')
-        } else {
-          details.push('✅ 触发留言 System On')
+        if (!json.error) {
           triggeredSystemOn = true
+          details.push(`✅ 已触发 System On，留言 ID ${commentId}`)
+        } else {
+          details.push(`❌ 留言失败 System On：${JSON.stringify(json.error)}`)
         }
         await markAsProcessed(commentId, post.id, 'system_on')
       } else {
@@ -107,7 +106,7 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言判断（主页留言 zzz）
+    // ✅ zzz 触发倒数（只触发一次）
     if (!zzzTriggeredThisRun && isFromPage && message.includes('zzz')) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
@@ -119,7 +118,7 @@ export default async function handler(req, res) {
         await markAsProcessed(commentId, post.id, 'zzz')
         triggeredZzz++
         zzzTriggeredThisRun = true
-        details.push(`✅ 已触发倒数：zzz 留言 ID ${commentId}`)
+        details.push(`✅ 已触发倒数 zzz，留言 ID ${commentId}`)
       } else {
         details.push(`⏭ 已跳过重复 zzz 留言 ID ${commentId}`)
       }
