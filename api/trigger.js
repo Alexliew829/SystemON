@@ -1,6 +1,6 @@
-# 生成完整 trigger.js 文件，加入 from_id 字段支持 Make 判断留言者身份
+# 重新保存 trigger.js 文件（确保无非法字符或错误引号）
 
-trigger_code = """
+trigger_code = """\
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
@@ -166,6 +166,7 @@ export default async function handler(req, res) {
 """
 
 # 保存为文件
-path = Path("/mnt/data/trigger_with_from_id.js")
+from pathlib import Path
+path = Path("/mnt/data/trigger_fixed.js")
 path.write_text(trigger_code, encoding="utf-8")
 path.name
