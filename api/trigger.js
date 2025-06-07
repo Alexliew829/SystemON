@@ -37,14 +37,15 @@ async function isProcessed(commentId) {
   return data && data.length > 0
 }
 
-async function markAsProcessed(commentId) {
+// ✅ 修改后的 markAsProcessed，可记录 comment_id、post_id、type
+async function markAsProcessed(commentId, postId = null, type = null) {
   if (!commentId || typeof commentId !== 'string') {
     console.error('❌ 无效的 commentId，写入失败:', commentId)
     return
   }
   const { error } = await supabase
     .from(TABLE_NAME)
-    .insert([{ comment_id: commentId }])
+    .insert([{ comment_id: commentId, post_id: postId, type: type }])
   if (error) console.error('⚠️ Supabase 写入失败:', error)
 }
 
@@ -71,6 +72,7 @@ export default async function handler(req, res) {
       console.error('❌ 无效评论，跳过该条:', comment)
       continue
     }
+
     const commentId = comment.id
     const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
@@ -98,7 +100,7 @@ export default async function handler(req, res) {
         } else {
           details.push('✅ 已留言过 System On，不重复触发')
         }
-        await markAsProcessed(commentId)
+        await markAsProcessed(commentId, post.id, 'system_on')
       } else {
         details.push(`⏭ 已跳过重复 System On 留言 ID ${commentId}`)
       }
@@ -110,7 +112,7 @@ export default async function handler(req, res) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
         console.log('准备触发 zzz，留言 ID:', commentId)
-        await markAsProcessed(commentId)
+        await markAsProcessed(commentId, post.id, 'zzz')
         await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
