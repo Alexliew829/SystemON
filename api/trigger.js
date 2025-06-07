@@ -2,7 +2,6 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
 
-// 初始化 Supabase
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_ANON_KEY
@@ -10,11 +9,10 @@ const supabase = createClient(
 const TABLE_NAME = 'triggered_comments'
 const PAGE_ID = process.env.PAGE_ID
 
-// 验证请求来源
 function verifyRequest(req) {
   const signature = req.headers['x-hub-signature-256']
   const cronSecret = req.headers['x-cron-secret'] || req.headers['x-cron-secret'.toLowerCase()]
-  const expectedCron = process.env.X_CRON_SECRET || process.env.CRON_SECRET
+  const expectedCron = process.env.CRON_SECRET || process.env.X_CRON_SECRET
 
   if (signature) {
     const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
@@ -25,7 +23,6 @@ function verifyRequest(req) {
   return cronSecret === expectedCron
 }
 
-// 获取最新贴文及留言
 async function getLatestPost() {
   const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
@@ -33,7 +30,6 @@ async function getLatestPost() {
   return json.data?.[0] || null
 }
 
-// 判断留言是否已处理
 async function isProcessed(commentId) {
   const { data } = await supabase
     .from(TABLE_NAME)
@@ -42,12 +38,10 @@ async function isProcessed(commentId) {
   return data.length > 0
 }
 
-// 标记留言为已处理
 async function markAsProcessed(commentId) {
   await supabase.from(TABLE_NAME).insert([{ comment_id: commentId }])
 }
 
-// 主处理函数
 async function processComments() {
   const post = await getLatestPost()
   if (!post || !post.comments?.data || post.comments.data.length === 0) {
@@ -64,7 +58,7 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    // ✅ “on”触发 System On，只要留言是 on 或 开始（精确匹配）
+    // ✅ "on"触发 System On，只要留言是 on 或 开始（精确匹配）
     if (['on', '开始'].includes(message)) {
       const hasSystemOn = post.comments.data.some(
         c => c.message?.includes('System On') && c.from?.id === PAGE_ID
@@ -103,13 +97,12 @@ async function processComments() {
     : { message: '✅ 系统运行正常，但无有效留言匹配关键词。', post_id: post?.id }
 }
 
-// Serverless Handler
 export default async function handler(req, res) {
-  if (!verifyRequest(req)) {
-    return res.status(403).json({ error: 'Unauthorized（缺少签名或 Cron 密钥）' })
-  }
-
   try {
+    if (!verifyRequest(req)) {
+      return res.status(403).json({ error: 'Unauthorized（缺少签名或 Cron 密钥）' })
+    }
+
     const result = await processComments()
     res.status(200).json(result)
   } catch (err) {
