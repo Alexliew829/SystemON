@@ -34,7 +34,7 @@ async function isProcessed(commentId) {
     .from(TABLE_NAME)
     .select('comment_id')
     .eq('comment_id', commentId)
-  return data.length > 0
+  return data && data.length > 0
 }
 
 async function markAsProcessed(commentId) {
@@ -65,13 +65,11 @@ export default async function handler(req, res) {
   for (const comment of comments) {
     const isFromPage = comment.from?.id === PAGE_ID
     const message = (comment.message || '').toLowerCase()
-
-    // ✅ 跳过重复处理的留言
     const alreadyProcessed = await isProcessed(comment.id)
-    if (!isFromPage || alreadyProcessed) continue
+    if (!isFromPage) continue
 
     // ✅ System On 关键词触发
-    if (message.includes('on') || message.includes('开始')) {
+    if ((message.includes('on') || message.includes('开始')) && !alreadyProcessed) {
       if (!hasSystemOn) {
         const response = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
           method: 'POST',
@@ -92,10 +90,11 @@ export default async function handler(req, res) {
         details.push('✅ 已留言过 System On，不重复触发')
       }
       await markAsProcessed(comment.id)
+      continue
     }
 
-    // ✅ zzz 留言触发倒数，只触发一次
-    if (message.includes('zzz')) {
+    // ✅ zzz 留言触发倒数，只触发一次（大小写不敏感）
+    if (message.includes('zzz') && !alreadyProcessed) {
       await fetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
