@@ -22,7 +22,7 @@ function verifyRequest(req) {
 }
 
 async function getLatestPost() {
-  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(20){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
+  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(10){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
   const res = await fetch(url)
   const json = await res.json()
   return json.data?.[0] || null
@@ -38,7 +38,10 @@ async function isProcessed(commentId) {
 }
 
 async function markAsProcessed(commentId) {
-  if (!commentId || typeof commentId !== 'string') return
+  if (!commentId || typeof commentId !== 'string') {
+    console.error('❌ 无效的 commentId，写入失败:', commentId)
+    return
+  }
   const { error } = await supabase
     .from(TABLE_NAME)
     .insert([{ comment_id: commentId }])
@@ -60,12 +63,18 @@ export default async function handler(req, res) {
 
   let triggeredSystemOn = false
   let triggeredZzz = 0
+  let zzzTriggeredThisRun = false
   let details = []
 
   for (const comment of comments) {
     const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
     const commentId = comment.id
+
+    if (!commentId) {
+      console.error('‼️ 无 comment.id，跳过该留言:', comment)
+      continue
+    }
 
     // ✅ System On 关键词触发（仅主页）
     if (isFromPage && (message.includes('on') || message.includes('开始'))) {
@@ -97,10 +106,11 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言触发倒数（仅主页），每条 comment.id 只触发一次
-    if (isFromPage && message.includes('zzz')) {
+    // ✅ zzz 留言触发倒数（仅主页），每次访问只触发一次
+    if (!zzzTriggeredThisRun && isFromPage && message.includes('zzz')) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
+        console.log('准备触发 zzz，留言 ID:', commentId)
         await markAsProcessed(commentId)
         await fetch(WEBHOOK_URL, {
           method: 'POST',
@@ -108,6 +118,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ post_id: post.id, comment_id: commentId }),
         })
         triggeredZzz++
+        zzzTriggeredThisRun = true
         details.push(`✅ 已触发倒数：zzz 留言 ID ${commentId}`)
       } else {
         details.push(`⏭ 已跳过重复的 zzz 留言 ID ${commentId}`)
