@@ -66,7 +66,7 @@ export default async function handler(req, res) {
     const isFromPage = comment.from?.id === PAGE_ID
     const message = (comment.message || '').toLowerCase()
     const alreadyProcessed = await isProcessed(comment.id)
-    if (!isFromPage) continue
+    if (!isFromPage) continue  // Only process comments from the page (not visitors)
 
     // ✅ System On 关键词触发
     if (isFromPage && (message.includes('on') || message.includes('开始')) && !alreadyProcessed) {
@@ -93,17 +93,16 @@ export default async function handler(req, res) {
       continue
     }
 
-   // ✅ zzz 留言触发倒数（仅处理主页留言，访客不触发）
-if (isFromPage && message.includes('zzz') && !alreadyProcessed) {
-  await fetch(WEBHOOK_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
-  })
-  await markAsProcessed(comment.id)
-  triggeredZzz++
-  details.push(`✅ 已触发倒数：zzz 留言 ID ${comment.id}`)
-}
+    // ✅ zzz 留言触发倒数（主页留言才会触发）
+    if (message.includes('zzz') && !alreadyProcessed) {
+      await fetch(WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
+      })
+      await markAsProcessed(comment.id)
+      triggeredZzz++
+      details.push(`✅ 已触发倒数：zzz 留言 ID ${comment.id}`)
     }
   }
 
