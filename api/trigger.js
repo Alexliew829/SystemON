@@ -37,7 +37,6 @@ async function isProcessed(commentId) {
   return data && data.length > 0
 }
 
-// ✅ 加入 local_time
 async function markAsProcessed(commentId) {
   if (!commentId || typeof commentId !== 'string') return
 
@@ -88,7 +87,7 @@ export default async function handler(req, res) {
     const message = (comment.message || '').toLowerCase()
     const isFromPage = comment.from?.id === PAGE_ID
 
-    // ✅ System On 触发一次
+    // ✅ System On：原逻辑不动
     if (isFromPage && (message.includes('on') || message.includes('开始'))) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
@@ -118,20 +117,23 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言触发（先触发，再写入）
+    // ✅ zzz 留言：加入 message 与 type 字段给 Make，用于 Filter 控制
     if (!zzzTriggeredThisRun && isFromPage && message.includes('zzz')) {
       const alreadyProcessed = await isProcessed(commentId)
       if (!alreadyProcessed) {
         console.log('准备触发 zzz，留言 ID:', commentId)
 
-        // ✅ 先触发 webhook
         await fetch(WEBHOOK_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ post_id: post.id, comment_id: commentId }),
+          body: JSON.stringify({
+            post_id: post.id,
+            comment_id: commentId,
+            message: message,
+            type: 'zzz'
+          }),
         })
 
-        // ✅ 然后写入 Supabase 防重复
         await markAsProcessed(commentId)
         triggeredZzz++
         zzzTriggeredThisRun = true
