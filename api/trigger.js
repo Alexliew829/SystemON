@@ -1,38 +1,64 @@
-// 获取该帖子的所有留言
-const commentRes = await fetch(
-  `https://graph.facebook.com/${postId}/comments?access_token=${PAGE_ACCESS_TOKEN}`
-);
-const commentData = await commentRes.json();
-const comments = commentData.data || [];
+async function processComments() {
+  const post = await getLatestPost()
+  if (!post) {
+    return { message: '❌ 找不到最新贴文' }
+  }
 
-// 检查是否已经留言“System On”
-const systemOnExists = comments.some(
-  (c) =>
-    c.from?.id === PAGE_ID &&
-    typeof c.message === 'string' &&
-    c.message.toLowerCase().includes('system on')
-);
+  const comments = post.comments?.data || []
 
-if (!systemOnExists) {
-  const replyRes = await fetch(
-    `https://graph.facebook.com/${postId}/comments`,
-    {
+  // ✅ 检查是否已留言 System On（只留言一次）
+  const hasSystemOn = comments.some(
+    c => c.message?.toLowerCase().includes('system on') && c.from?.id === PAGE_ID
+  )
+
+  if (!hasSystemOn) {
+    // 自动留言一次 System On
+    await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: 'System On',
-        access_token: PAGE_ACCESS_TOKEN,
+      body: new URLSearchParams({
+        message: 'System On 晚上好，欢迎来到情人传奇🌿',
+        access_token: process.env.FB_ACCESS_TOKEN,
       }),
+    })
+    return {
+      message: '✅ 系统正常运行，已自动留言 System On',
+      post_id: post.id,
     }
-  );
+  }
 
-  return res.status(200).json({
-    message: '✅ 系统正常运行，已经留言 System On',
-    post_id: postId,
-  });
-} else {
-  return res.status(200).json({
-    message: '✅ 系统正常运行，已留言过 System On（不重复）',
-    post_id: postId,
-  });
+  // ✅ 检查是否有新的 zzz 留言（主页身份留言，且未触发过）
+  let triggerCount = 0
+  let responseMessages = []
+
+  for (const comment of comments) {
+    const isFromPage = comment.from?.id === PAGE_ID
+    const message = comment.message?.toLowerCase() || ''
+    const alreadyProcessed = await isProcessed(comment.id)
+
+    if (!isFromPage || alreadyProcessed) continue
+
+    if (message.includes('zzz')) {
+      await fetch(process.env.WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
+      })
+      await markAsProcessed(comment.id)
+      responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
+      triggerCount++
+    }
+  }
+
+  if (triggerCount > 0) {
+    return {
+      message: `✅ 触发 ${triggerCount} 条 “zzz” 留言`,
+      post_id: post.id,
+      logs: responseMessages,
+    }
+  } else {
+    return {
+      message: '✅ 系统运行正常，已留言 System On，无新留言需触发',
+      post_id: post.id,
+    }
+  }
 }
