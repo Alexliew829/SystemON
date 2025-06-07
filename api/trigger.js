@@ -95,15 +95,15 @@ export default async function handler(req, res) {
       continue
     }
 
-    // ✅ zzz 留言触发倒数，只触发一次（只处理主页留言）
+    // ✅ zzz 留言触发倒数（主页留言才会触发），每条 comment.id 只触发一次
     if (message.includes('zzz') && !alreadyProcessed) {
       await fetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
-      
-      // Mark as processed immediately after triggering
+
+      // Immediately mark as processed once we trigger the countdown
       await markAsProcessed(comment.id)
 
       triggeredZzz++
