@@ -47,6 +47,7 @@ async function markAsProcessed(commentId) {
     .from(TABLE_NAME)
     .insert([{ comment_id: commentId }])
   if (error) console.error('⚠️ Supabase 写入失败:', error)
+  else console.log('✅ 已写入 comment_id 处理记录:', commentId)
 }
 
 export default async function handler(req, res) {
@@ -63,6 +64,9 @@ export default async function handler(req, res) {
   const hasSystemOn = comments.some(
     c => (c.message || '').toLowerCase().includes('system on') && c.from?.id === PAGE_ID
   )
+
+  let responseMessage = '✅ 系统运行完毕'
+  let messageDetails = []
 
   for (const comment of comments) {
     const isFromPage = comment.from?.id === PAGE_ID
@@ -82,23 +86,39 @@ export default async function handler(req, res) {
             access_token: FB_ACCESS_TOKEN,
           }),
         })
+
         const json = await response.json()
-        if (json.error) console.error('❌ 留言失败:', json.error)
-        else console.log('✅ 已留言 System On:', json.id)
+        if (json.error) {
+          messageDetails.push('❌ 留言失败')
+        } else {
+          messageDetails.push('成功留言 System On')
+        }
       }
       await markAsProcessed(comment.id)
     }
 
-    // ✅ zzz 留言触发 Webhook（只触发一次）
+    // ✅ 留言 "zzz" 只触发一次
     if (message.includes('zzz')) {
+      console.log('🚀 触发 Webhook for:', comment.id)
+
       await fetch(WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
+
       await markAsProcessed(comment.id)
+      messageDetails.push('✅ 成功触发 1 条 “zzz” 倒数')
     }
   }
 
-  return res.status(200).json({ message: '✅ 系统运行完毕', post_id: post.id })
+  if (messageDetails.length === 0) {
+    responseMessage = '✅ 系统运行完毕，但没有匹配的关键字'
+  }
+
+  return res.status(200).json({
+    message: responseMessage,
+    details: messageDetails,
+    post_id: post.id,
+  })
 }
