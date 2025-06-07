@@ -58,41 +58,43 @@ async function processComments() {
 
     if (!isFromPage || alreadyProcessed) continue
 
-    let matched = false
-
-    if (!matched && message.includes('zzz')) {
+    // ✅ 如果是 "zzz"，直接触发 webhook，不再继续判断
+    if (message.includes('zzz')) {
       await fetch(process.env.WEBHOOK_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ post_id: post.id, comment_id: comment.id })
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id }),
       })
+      await markAsProcessed(comment.id)
       responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
-      matched = true
       triggerCount++
+      continue // 防止继续进入 System On 判断
     }
 
-    if (!matched && (message.includes('on') || message.includes('开始'))) {
+    // ✅ “on”或“开始”只触发一次 System On 留言
+    if (message.includes('on') || message.includes('开始')) {
       const hasSystemOn = post.comments.data.some(
         c => c.message?.includes('System On') && c.from?.id === PAGE_ID
       )
       if (!hasSystemOn) {
-        await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
+        const replyRes = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
           method: 'POST',
           body: new URLSearchParams({
             message: 'System On 晚上好，欢迎来到情人传奇🌿',
-            access_token: process.env.FB_ACCESS_TOKEN
-          })
+            access_token: process.env.FB_ACCESS_TOKEN,
+          }),
         })
-        responseMessages.push(`✅ “on”留言已触发 System On`)
+        const replyJson = await replyRes.json()
+        if (replyJson.id) {
+          responseMessages.push(`✅ “on”留言已触发 System On`)
+        } else {
+          responseMessages.push(`❌ System On 留言失败: ${JSON.stringify(replyJson)}`)
+        }
       } else {
         responseMessages.push(`⚠️ 已有 System On，无需重复触发`)
       }
-      matched = true
-      triggerCount++
-    }
-
-    if (matched) {
       await markAsProcessed(comment.id)
+      triggerCount++
     }
   }
 
