@@ -3,18 +3,7 @@ export default async function handler(req, res) {
   const pageId = process.env.PAGE_ID;
   const accessToken = process.env.FB_ACCESS_TOKEN;
 
-  // 打印来源信息
-  console.log("🔥 Trigger accessed at:", new Date().toISOString());
-  console.log("🧠 IP Address:", req.headers["x-forwarded-for"] || req.connection?.remoteAddress);
-  console.log("📱 User-Agent:", req.headers["user-agent"]);
-  console.log("🔁 Method:", req.method);
-
-  // ❌ 如果是 HEAD 请求，就只返回 200，不执行
-  if (req.method === "HEAD") {
-    return res.status(200).end(); // 不触发任何倒数逻辑
-  }
-
-  // 时间段判断（UTC+8 20:00~02:00）
+  // 时间限制：每天 20:00 至隔天 02:00（马来西亚时间）
   const now = new Date();
   const hour = now.getUTCHours() + 8;
   const adjustedHour = hour >= 24 ? hour - 24 : hour;
@@ -62,7 +51,6 @@ export default async function handler(req, res) {
       message: `✅ 已触发倒数留言，Post ID: ${latestPostId}`
     });
   } catch (error) {
-    console.error("❌ Error in trigger:", error);
     res.status(500).json({
       success: false,
       message: "❌ 系统错误",
