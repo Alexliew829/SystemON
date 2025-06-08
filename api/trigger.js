@@ -2,161 +2,117 @@ import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 import fetch from 'node-fetch'
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
-const PAGE_ID = process.env.PAGE_ID
-const FB_ACCESS_TOKEN = process.env.FB_ACCESS_TOKEN
-const WEBHOOK_URL = process.env.WEBHOOK_URL
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+)
 const TABLE_NAME = 'triggered_comments'
-const CRON_SECRET = process.env.CRON_SECRET
-const FB_APP_SECRET = process.env.FB_APP_SECRET
+const PAGE_ID = process.env.PAGE_ID
+const COMMENT_ON_FLAG = 'system_on_posted'
 
 function verifyRequest(req) {
   const signature = req.headers['x-hub-signature-256']
   const cronSecret = req.headers['x-cron-secret']
+  const expectedCron = process.env.CRON_SECRET
+
   if (signature) {
-    const hmac = crypto.createHmac('sha256', FB_APP_SECRET)
+    const hmac = crypto.createHmac('sha256', process.env.FB_APP_SECRET)
     const digest = hmac.update(JSON.stringify(req.body)).digest('hex')
     return signature === `sha256=${digest}`
   }
-  return cronSecret === CRON_SECRET
+
+  return cronSecret === expectedCron
 }
 
 async function getLatestPost() {
-  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(20){id,message,from,created_time}&access_token=${FB_ACCESS_TOKEN}`
+  const url = `https://graph.facebook.com/v19.0/${PAGE_ID}/posts?fields=id,created_time,comments.limit(100){id,message,from}&access_token=${process.env.FB_ACCESS_TOKEN}`
   const res = await fetch(url)
   const json = await res.json()
-  return json.data?.[0] || null
+  const latest = json.data?.[0]
+
+  // 限制为 6 小时内的贴文
+  if (!latest) return null
+  const age = (Date.now() - new Date(latest.created_time).getTime()) / 1000 / 60 / 60
+  return age <= 6 ? latest : null
 }
 
 async function isProcessed(commentId) {
-  if (!commentId || typeof commentId !== 'string') return true
   const { data } = await supabase
     .from(TABLE_NAME)
     .select('comment_id')
     .eq('comment_id', commentId)
-  return data && data.length > 0
+  return data.length > 0
 }
 
 async function markAsProcessed(commentId) {
-  if (!commentId || typeof commentId !== 'string') return
+  await supabase.from(TABLE_NAME).insert([{ comment_id: commentId }])
+}
 
-  const localTime = new Date().toLocaleString('sv-SE', {
-    timeZone: 'Asia/Kuala_Lumpur'
-  })
+async function hasSystemOnComment(post) {
+  return post.comments?.data?.some(
+    c => c.message?.includes('System On') && c.from?.id === PAGE_ID
+  )
+}
 
-  const { error } = await supabase
-    .from(TABLE_NAME)
-    .insert([{ comment_id: commentId, local_time: localTime }])
-
-  if (error) {
-    if (error.code === '23505') {
-      console.log(`⏭ 已存在，不重复写入 comment_id: ${commentId}`)
-    } else {
-      console.error('⚠️ Supabase 写入失败:', error)
-    }
-  } else {
-    console.log(`✅ 已写入 comment_id: ${commentId}`)
+async function processComments() {
+  const post = await getLatestPost()
+  if (!post) {
+    return { message: '✅ 系统正常运行，但暂无留言或贴文已过期。' }
   }
+
+  let triggerCount = 0
+  let responseMessages = []
+
+  const alreadyCommented = await hasSystemOnComment(post)
+  if (!alreadyCommented) {
+    await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        message: 'System On 晚上好，欢迎来到情人传奇🌿',
+        access_token: process.env.FB_ACCESS_TOKEN,
+      })
+    })
+    responseMessages.push('✅ 已留言 System On')
+  }
+
+  if (!post.comments?.data || post.comments.data.length === 0) {
+    return { message: '✅ 系统正常运行，但暂无留言。', post_id: post.id }
+  }
+
+  for (const comment of post.comments.data) {
+    const isFromPage = comment.from?.id === PAGE_ID
+    const message = comment.message?.toLowerCase() || ''
+    const alreadyProcessed = await isProcessed(comment.id)
+
+    if (!isFromPage || alreadyProcessed) continue
+
+    if (message.includes('zzz')) {
+      await fetch(process.env.WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ post_id: post.id, comment_id: comment.id })
+      })
+      await markAsProcessed(comment.id)
+      responseMessages.push(`✅ “zzz”留言已触发 Webhook`)
+      triggerCount++
+    }
+  }
+
+  return triggerCount > 0
+    ? { triggered: triggerCount, post_id: post.id, logs: responseMessages }
+    : { message: '✅ 系统运行正常，无新留言触发倒数。', post_id: post.id }
 }
 
 export default async function handler(req, res) {
   if (!verifyRequest(req)) {
-    return res.status(403).json({ error: 'Unauthorized（签名或 Cron 密钥无效）' })
+    return res.status(403).json({ error: 'Unauthorized（缺少签名或 Cron 密钥）' })
   }
 
-  const post = await getLatestPost()
-  if (!post) return res.status(200).json({ message: '❌ 找不到最新贴文' })
-
-  const comments = post.comments?.data || []
-  const hasSystemOn = comments.some(
-    c => (c.message || '').toLowerCase().includes('system on') && c.from?.id === PAGE_ID
-  )
-
-  let triggeredSystemOn = false
-  let triggeredZzz = 0
-  let zzzTriggeredThisRun = false
-  let details = []
-
-  for (const comment of comments) {
-    if (!comment || !comment.id || typeof comment.id !== 'string') {
-      console.error('❌ 无效评论，跳过该条:', comment)
-      continue
-    }
-
-    const commentId = comment.id
-    const message = (comment.message || '').toLowerCase()
-    const isFromPage = comment.from?.id === PAGE_ID
-
-    // ✅ System On 原逻辑保留
-    if (isFromPage && (message.includes('on') || message.includes('开始'))) {
-      const alreadyProcessed = await isProcessed(commentId)
-      if (!alreadyProcessed) {
-        if (!hasSystemOn) {
-          const response = await fetch(`https://graph.facebook.com/v19.0/${post.id}/comments`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              message: 'System On 晚上好，欢迎来到情人传奇🌿',
-              access_token: FB_ACCESS_TOKEN,
-            }),
-          })
-          const json = await response.json()
-          if (json.error) {
-            details.push('❌ 留言失败 System On')
-          } else {
-            details.push('✅ 触发留言 System On')
-            triggeredSystemOn = true
-          }
-        } else {
-          details.push('✅ 已留言过 System On，不重复触发')
-        }
-        await markAsProcessed(commentId)
-      } else {
-        details.push(`⏭ 已跳过重复 System On 留言 ID ${commentId}`)
-      }
-      continue
-    }
-
-    // ✅ zzz 留言触发：支持传递 from_id 给 Make 判断身份
-    if (!zzzTriggeredThisRun && isFromPage && message.includes('zzz')) {
-      const alreadyProcessed = await isProcessed(commentId)
-      if (!alreadyProcessed) {
-        console.log('准备触发 zzz，留言 ID:', commentId)
-
-        await fetch(WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            post_id: post.id,
-            comment_id: commentId,
-            message: message,
-            type: 'zzz',
-            from_id: comment.from?.id
-          }),
-        })
-
-        await markAsProcessed(commentId)
-        triggeredZzz++
-        zzzTriggeredThisRun = true
-        details.push(`✅ 已触发倒数：zzz 留言 ID ${commentId}`)
-      } else {
-        details.push(`⏭ 已跳过重复的 zzz 留言 ID ${commentId}`)
-      }
-    }
+  try {
+    const result = await processComments()
+    res.status(200).json(result)
+  } catch (err) {
+    console.error('执行出错:', err)
+    res.status(500).json({ error: err.message })
   }
-
-  const responseMessage =
-    triggeredSystemOn || triggeredZzz > 0
-      ? '✅ 系统运行完毕'
-      : '✅ 系统运行完毕，没有匹配留言'
-
-  return res.status(200).json({
-    message: responseMessage,
-    details,
-    post_id: post.id,
-    triggered: {
-      system_on: triggeredSystemOn,
-      zzz_triggered: triggeredZzz,
-    },
-  })
 }
