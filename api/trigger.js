@@ -3,15 +3,15 @@ export default async function handler(req, res) {
   const pageId = process.env.PAGE_ID;
   const accessToken = process.env.FB_ACCESS_TOKEN;
 
-  // 时间限制：每天 20:00 至隔天 02:00（马来西亚时间）
+  // 时间限制：每天 20:00 至隔天 04:00（马来西亚时间）
   const now = new Date();
   const hour = now.getUTCHours() + 8;
   const adjustedHour = hour >= 24 ? hour - 24 : hour;
 
-  if (!(adjustedHour >= 20 || adjustedHour < 2)) {
+  if (!(adjustedHour >= 20 || adjustedHour < 4)) {
     return res.status(403).json({
       success: false,
-      message: "⛔ 当前不在触发时段（每天20:00~02:00）"
+      message: "⛔ 当前不在触发时段（每天20:00~04:00）"
     });
   }
 
