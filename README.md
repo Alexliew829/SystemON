@@ -11,3 +11,4 @@ Recommended Vercel Root Directory settings:
 - SystemOnButton project: `button`
 
 Keep the existing Vercel projects and domains unchanged. Make does not need to be modified.
+Monorepo deployment
