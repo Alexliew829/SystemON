@@ -7,168 +7,132 @@
   <link rel="icon" href="/icon.png" />
   <link rel="apple-touch-icon" href="/icon.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="启动倒数" />
-  <meta name="theme-color" content="#091a2a" />
+  <meta name="theme-color" content="#081725" />
   <style>
-    :root{--bg1:#07111d;--bg2:#0d2540;--card:rgba(12,27,45,.86);--line:rgba(126,216,255,.28);--text:#eaf7ff;--muted:#a8c4d8;--red:#ff4452;--ok:#56f0a6;--warn:#ffd36b}
-    *{box-sizing:border-box}
-    body{margin:0;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--text);background:radial-gradient(circle at 20% 20%,rgba(68,224,255,.16),transparent 26%),radial-gradient(circle at 80% 10%,rgba(255,199,71,.18),transparent 22%),linear-gradient(180deg,var(--bg2),var(--bg1));display:flex;align-items:center;justify-content:center;padding:18px}
-    .app{width:min(94vw,500px);border-radius:28px;padding:24px 22px 22px;background:var(--card);border:1px solid var(--line);box-shadow:0 16px 48px rgba(0,0,0,.38);backdrop-filter:blur(16px)}
-    .top{text-align:center}.icon{width:108px;height:108px;border-radius:25px;object-fit:cover;box-shadow:0 0 28px rgba(79,230,255,.28);display:block;margin:0 auto 14px}
-    h1{margin:0;font-size:31px;color:var(--red);text-shadow:0 0 12px rgba(255,77,87,.24)}
-    .sub{margin:10px auto 20px;color:var(--muted);font-size:15px;line-height:1.55;max-width:410px}
-    .label{display:block;text-align:left;font-size:14px;font-weight:700;margin:0 0 8px;color:#d9f2ff}
-    .input{width:100%;min-height:52px;border-radius:14px;border:1px solid rgba(126,216,255,.3);background:rgba(255,255,255,.055);color:white;padding:13px 14px;font-size:16px;outline:none;word-break:break-all}
-    .input:focus{border-color:#62dfff;box-shadow:0 0 0 3px rgba(98,223,255,.11)}
-    .row{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:10px}.smallbtn{border:0;border-radius:13px;padding:12px 16px;font-size:15px;font-weight:750;cursor:pointer;background:#1e6686;color:#fff}.smallbtn.secondary{background:#28394c;color:#cfe8f6}.smallbtn:disabled{opacity:.5;cursor:not-allowed}
-    .preview{display:none;margin-top:16px;border-radius:16px;padding:14px;background:rgba(86,240,166,.06);border:1px solid rgba(86,240,166,.32);text-align:left}.preview.show{display:block}.previewTitle{font-weight:800;color:#d9fff0;margin-bottom:7px}.meta{font-size:13px;color:#b8d6e5;line-height:1.5}.msg{margin-top:8px;font-size:14px;line-height:1.5;color:#ecfaff;white-space:pre-wrap;max-height:94px;overflow:auto}.link{display:inline-block;margin-top:10px;color:#7de8ff;font-weight:700;text-decoration:none}
-    .btn{width:100%;margin-top:18px;border:0;border-radius:20px;padding:18px;font-size:27px;font-weight:850;cursor:pointer;color:white;background:linear-gradient(135deg,#ff3646 0%,#ff6b2f 45%,#ffb224 100%);box-shadow:0 12px 30px rgba(255,82,82,.32)}.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
-    .hint{margin-top:11px;text-align:center;color:#91afc2;font-size:12px}
-    .status{margin-top:15px;border-radius:16px;padding:13px 14px;min-height:64px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);font-size:14px;line-height:1.55;white-space:pre-wrap;word-break:break-word}.status.ok{border-color:rgba(86,240,166,.42);color:#dcfff1}.status.err{border-color:rgba(255,120,120,.42);color:#ffe3e3}.status.loading{border-color:rgba(79,230,255,.32);color:#dcf8ff}
-    .footer{text-align:center;margin-top:13px;color:#7398af;font-size:12px}
-    @media(max-width:420px){body{padding:10px}.app{padding:20px 16px}.icon{width:92px;height:92px}.btn{font-size:24px}.row{grid-template-columns:1fr 92px}}
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: linear-gradient(180deg, #16344d 0%, #081725 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #eef8ff;
+    }
+    .card {
+      width: min(92vw, 430px);
+      text-align: center;
+      padding: 32px 22px 26px;
+      border-radius: 28px;
+      background: rgba(8, 24, 40, 0.9);
+      border: 1px solid rgba(124, 211, 255, 0.25);
+      box-shadow: 0 18px 55px rgba(0,0,0,0.36);
+    }
+    .icon {
+      width: 118px;
+      height: 118px;
+      border-radius: 28px;
+      object-fit: cover;
+      box-shadow: 0 0 24px rgba(64, 224, 255, 0.2);
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      color: #ff4c57;
+    }
+    .note {
+      margin: 0 0 24px;
+      color: #a8c4d8;
+      font-size: 15px;
+      line-height: 1.55;
+    }
+    .btn {
+      width: 100%;
+      border: 0;
+      border-radius: 20px;
+      padding: 19px 16px;
+      font-size: 28px;
+      font-weight: 800;
+      color: white;
+      background: linear-gradient(135deg, #ff3e4d 0%, #ff9f22 100%);
+      box-shadow: 0 12px 30px rgba(255, 93, 62, 0.28);
+      cursor: pointer;
+    }
+    .btn:disabled {
+      opacity: 0.62;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 18px;
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      border-radius: 16px;
+      font-size: 16px;
+      font-weight: 700;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #bdd5e5;
+    }
+    .status.loading { color: #d9f6ff; border-color: rgba(79, 230, 255, 0.28); }
+    .status.ok { color: #caffdf; border-color: rgba(74, 224, 140, 0.38); }
+    .status.err { color: #ffd1d1; border-color: rgba(255, 105, 105, 0.45); }
+    .footer {
+      margin-top: 16px;
+      font-size: 12px;
+      color: #6f96ad;
+    }
   </style>
 </head>
 <body>
-  <main class="app">
-    <div class="top">
-      <img class="icon" src="/icon.png" alt="启动倒数图标" />
-      <h1>启动倒数</h1>
-      <div class="sub">Make 保持 Active 即可。开播后用手机点 Facebook「分享 → 复制链接」，直接贴在下面；系统会尝试自动解析分享短链接并确认正确贴文。</div>
-    </div>
+  <main class="card">
+    <img class="icon" src="/icon.png" alt="启动倒数" />
+    <h1>启动倒数</h1>
+    <p class="note">确认 Make 已设好本场直播 Post ID，并保持 Active。</p>
 
-    <label class="label" for="liveInput">Facebook Live 分享链接 / 正式链接 / Post ID</label>
-    <textarea id="liveInput" class="input" rows="2" placeholder="例如：https://www.facebook.com/share/...\n或 https://www.facebook.com/.../videos/123456...\n或 101411206173416_123456..."></textarea>
-    <div class="row">
-      <button id="checkBtn" class="smallbtn" type="button">检查直播</button>
-      <button id="clearBtn" class="smallbtn secondary" type="button">清除</button>
-    </div>
-
-    <section id="preview" class="preview">
-      <div class="previewTitle">✅ 已找到 Facebook 贴文</div>
-      <div id="previewMeta" class="meta"></div>
-      <div id="previewMessage" class="msg"></div>
-      <a id="previewLink" class="link" href="#" target="_blank" rel="noopener">🔗 查看这篇贴文</a>
-    </section>
-
-    <button id="triggerBtn" class="btn" type="button" disabled>▶ 启动倒数</button>
-    <div class="hint">每场直播只需检查一次。之后同一场直播可连续多次启动倒数，不需要打开 Make。</div>
-    <div id="status" class="status">等待你贴上这场直播的链接…</div>
+    <button id="startBtn" class="btn">▶ 启动倒数</button>
+    <div id="status" class="status">准备就绪</div>
     <div class="footer">Lover Legend Gardening</div>
   </main>
 
   <script>
-    const input = document.getElementById('liveInput');
-    const checkBtn = document.getElementById('checkBtn');
-    const clearBtn = document.getElementById('clearBtn');
-    const triggerBtn = document.getElementById('triggerBtn');
-    const statusBox = document.getElementById('status');
-    const preview = document.getElementById('preview');
-    const previewMeta = document.getElementById('previewMeta');
-    const previewMessage = document.getElementById('previewMessage');
-    const previewLink = document.getElementById('previewLink');
-    let validatedInput = '';
-    let validatedPost = null;
+    const btn = document.getElementById('startBtn');
+    const status = document.getElementById('status');
 
-    const saved = localStorage.getItem('systemon_live_input');
-    if (saved) input.value = saved;
-
-    function setStatus(type, text) {
-      statusBox.className = 'status ' + (type || '');
-      statusBox.textContent = text;
+    function showStatus(type, text) {
+      status.className = 'status' + (type ? ' ' + type : '');
+      status.textContent = text;
     }
 
-    function resetValidation() {
-      validatedInput = '';
-      validatedPost = null;
-      triggerBtn.disabled = true;
-      preview.classList.remove('show');
-    }
-
-    input.addEventListener('input', () => {
-      resetValidation();
-      setStatus('', '内容有变更，请重新检查直播。');
-    });
-
-    clearBtn.addEventListener('click', () => {
-      input.value = '';
-      localStorage.removeItem('systemon_live_input');
-      resetValidation();
-      setStatus('', '等待你贴上这场直播的链接…');
-      input.focus();
-    });
-
-    async function callApi(action, rawInput) {
-      const response = await fetch('/api/trigger', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({ action, input: rawInput })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.message || '系统请求失败');
-      return data;
-    }
-
-    checkBtn.addEventListener('click', async () => {
-      const raw = input.value.trim();
-      if (!raw) {
-        setStatus('err', '❌ 请先贴上 Facebook Live 链接或 Post ID');
-        return;
-      }
-
-      checkBtn.disabled = true;
-      triggerBtn.disabled = true;
-      setStatus('loading', '正在解析链接并检查 Facebook 直播贴文…');
-      preview.classList.remove('show');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = '⏳ 启动中...';
+      showStatus('loading', '正在启动倒数...');
 
       try {
-        const data = await callApi('check', raw);
-        validatedInput = raw;
-        validatedPost = data;
-        localStorage.setItem('systemon_live_input', raw);
+        const response = await fetch('/api/trigger', {
+          method: 'GET',
+          cache: 'no-store'
+        });
+        const data = await response.json();
 
-        const when = data.created_time ? new Date(data.created_time).toLocaleString('zh-MY', { hour12: false }) : '未提供时间';
-        previewMeta.textContent = `Post ID: ${data.post_id}\n时间: ${when}`;
-        previewMessage.textContent = data.message ? data.message : '（这篇贴文没有文字内容）';
-        if (data.permalink_url) {
-          previewLink.href = data.permalink_url;
-          previewLink.style.display = 'inline-block';
-        } else {
-          previewLink.style.display = 'none';
+        if (!response.ok || data.success !== true) {
+          throw new Error(data.message || '启动失败');
         }
-        preview.classList.add('show');
-        triggerBtn.disabled = false;
-        setStatus('ok', '✅ 检查成功。请确认上面的贴文就是这场直播，然后再点「启动倒数」。');
+
+        showStatus('ok', '✅ 已启动倒数');
+        btn.textContent = '▶ 再次启动';
       } catch (error) {
-        resetValidation();
-        setStatus('err', error.message || '❌ 检查失败');
+        showStatus('err', '❌ ' + (error.message || '启动失败，请重试'));
+        btn.textContent = '▶ 再次启动';
       } finally {
-        checkBtn.disabled = false;
-      }
-    });
-
-    triggerBtn.addEventListener('click', async () => {
-      if (!validatedInput || !validatedPost) {
-        setStatus('err', '❌ 请先检查并确认这场直播');
-        return;
-      }
-
-      triggerBtn.disabled = true;
-      checkBtn.disabled = true;
-      triggerBtn.textContent = '⏳ 正在启动...';
-      setStatus('loading', `正在送出倒数请求…\nPost ID: ${validatedPost.post_id}`);
-
-      try {
-        const data = await callApi('trigger', validatedInput);
-        setStatus('ok', `${data.message}\nPost ID: ${data.post_id}\n\nMake 会继续在云端执行；你不需要打开办公室电脑。`);
-      } catch (error) {
-        setStatus('err', error.message || '❌ 启动失败');
-      } finally {
-        triggerBtn.disabled = false;
-        checkBtn.disabled = false;
-        triggerBtn.textContent = '▶ 再次启动倒数';
+        btn.disabled = false;
       }
     });
   </script>
