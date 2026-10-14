@@ -1,13 +1,25 @@
-# SystemON Simple V5
+# SystemON Simple V6
 
-正式操作方式：
-1. 在 Facebook Live 建立直播，先设为私人。
-2. 在 Make 内把本场直播的正确 Post ID 设好，并保持 Scenario Active。
-3. Facebook Live 改为 Public / Open。
-4. 打开 `system-on.vercel.app`，点击「启动倒数」。
-5. 完成后可直接点击「再次启动」。
+简化版启动倒数：
 
-SystemON 不再处理 Facebook Live 链接或 Post ID，只负责触发 Make Webhook。
+- 首页只保留「启动倒数 / 再次启动」和简单状态。
+- 点击按钮后，后端自动读取 Lover Legend Gardening 最新 Facebook Page Post。
+- 把真正的 `post_id` 送到 Make Webhook。
+- Make 后面的 Facebook 模块继续使用 Webhook 的 `1. post_id`。
+- 不需要在 SystemON 输入 Facebook 链接或 Post ID。
 
-Vercel 仅需要环境变量：
+## Vercel 环境变量
+
+必须保留：
+
 - `WEBHOOK_URL`
+- `PAGE_ID`
+- `FB_ACCESS_TOKEN`
+
+## Make
+
+后续倒数模块的 Post ID 保持 Map：
+
+`1. post_id`
+
+不要删除 Webhook 的 post_id Mapping。
