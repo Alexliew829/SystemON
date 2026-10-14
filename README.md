@@ -1,16 +1,12 @@
 # SystemON
 
-Monorepo structure:
+合并版内容：
+- `/api/trigger.js`：触发 Make Webhook，并自动抓取 Facebook 最新贴文 ID
+- `/index.html`：启动倒数页面（不会跳去 JSON 页面，可重复点击）
+- `/icon.png`：启动倒数 App 图标
 
-- `api-server/` - Vercel backend project for `system-on.vercel.app`
-- `button/` - Vercel frontend project for `system-on-button.vercel.app`
-
-Recommended Vercel Root Directory settings:
-
-- SystemON project: `api-server`
-- SystemOnButton project: `button`
-
-Keep the existing Vercel projects and domains unchanged. Make does not need to be modified.
-Monorepo deployment
-Vercel reconnect deployment
-Deploy button after reconnect
+## Vercel 环境变量
+请确认已设置：
+- `WEBHOOK_URL`
+- `PAGE_ID`
+- `FB_ACCESS_TOKEN`

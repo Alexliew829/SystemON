@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>启动倒数</title>
+  <link rel="icon" href="/icon.png" />
+  <link rel="apple-touch-icon" href="/icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="启动倒数" />
+  <meta name="theme-color" content="#091a2a" />
+  <style>
+    :root {
+      --bg1: #07111d;
+      --bg2: #0d2540;
+      --card: rgba(12, 27, 45, 0.82);
+      --line: rgba(126, 216, 255, 0.28);
+      --text: #eaf7ff;
+      --muted: #a8c4d8;
+      --glow: #4fe6ff;
+      --accent: #ff2f3d;
+      --accent2: #ffd24d;
+      --ok: #56f0a6;
+      --err: #ff9b9b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 20% 20%, rgba(68, 224, 255, 0.16), transparent 26%),
+        radial-gradient(circle at 80% 10%, rgba(255, 199, 71, 0.18), transparent 22%),
+        linear-gradient(180deg, var(--bg2), var(--bg1));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .app {
+      width: min(92vw, 460px);
+      border-radius: 28px;
+      padding: 28px 22px 24px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.38), inset 0 0 0 1px rgba(255,255,255,0.03);
+      backdrop-filter: blur(16px);
+      text-align: center;
+    }
+
+    .icon {
+      width: 112px;
+      height: 112px;
+      border-radius: 26px;
+      object-fit: cover;
+      box-shadow: 0 0 28px rgba(79, 230, 255, 0.28);
+      display: block;
+      margin: 0 auto 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.12;
+      letter-spacing: 0.5px;
+      color: #ff4b57;
+      text-shadow: 0 0 12px rgba(255, 77, 87, 0.25);
+    }
+
+    .sub {
+      margin: 12px auto 24px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.55;
+      max-width: 320px;
+    }
+
+    .btn {
+      width: 100%;
+      border: none;
+      border-radius: 20px;
+      padding: 18px 18px;
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      cursor: pointer;
+      color: white;
+      background: linear-gradient(135deg, #ff3646 0%, #ff6b2f 45%, #ffb224 100%);
+      box-shadow: 0 12px 30px rgba(255, 82, 82, 0.35);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+    .btn:active { transform: scale(0.985); }
+    .btn:disabled {
+      opacity: 0.7;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .hint {
+      margin-top: 14px;
+      font-size: 13px;
+      color: #93b4c9;
+    }
+
+    .status {
+      margin-top: 18px;
+      text-align: left;
+      border-radius: 18px;
+      padding: 14px 15px;
+      min-height: 74px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 14px;
+      line-height: 1.6;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+
+    .status.ok { border-color: rgba(86, 240, 166, 0.4); color: #d9fff0; }
+    .status.err { border-color: rgba(255, 155, 155, 0.4); color: #ffe2e2; }
+    .status.loading { border-color: rgba(79, 230, 255, 0.32); color: #dcf8ff; }
+
+    .footer {
+      margin-top: 14px;
+      color: #7ea2ba;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <img class="icon" src="/icon.png" alt="启动倒数图标" />
+    <h1>启动倒数</h1>
+    <div class="sub">开播前准备好直播贴文后，点击一次按钮，就会触发 Make 倒数流程。</div>
+
+    <button id="triggerBtn" class="btn">▶ 启动倒数</button>
+    <div class="hint">不会跳去 JSON 页面，可连续多次点击使用。</div>
+
+    <div id="status" class="status">等待操作…</div>
+    <div class="footer">Lover Legend Gardening</div>
+  </main>
+
+  <script>
+    const btn = document.getElementById('triggerBtn');
+    const statusBox = document.getElementById('status');
+
+    function setStatus(type, text) {
+      statusBox.className = 'status ' + type;
+      statusBox.textContent = text;
+    }
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      btn.textContent = '⏳ 处理中...';
+      setStatus('loading', '正在触发倒数，请稍候...');
+
+      try {
+        const response = await fetch('/api/trigger', { method: 'GET' });
+        const data = await response.json();
+        if (response.ok) {
+          setStatus('ok', (data.message || '✅ 已成功触发') + (data.success === false ? '
+注意：返回 success=false' : ''));
+        } else {
+          setStatus('err', (data.message || '❌ 触发失败') + (data.error ? '
+' + data.error : ''));
+        }
+      } catch (error) {
+        setStatus('err', '❌ 无法连接系统
+' + error.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ 启动倒数';
+      }
+    });
+  </script>
+</body>
+</html>
