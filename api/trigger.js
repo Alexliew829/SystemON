@@ -1,5 +1,4 @@
 const GRAPH_VERSION = 'v23.0';
-const FIRST_CONFIRM_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 async function graphGetLatestPost(pageId, accessToken) {
   const fields = 'id,created_time,message,permalink_url';
@@ -25,12 +24,6 @@ async function graphGetLatestPost(pageId, accessToken) {
   return post;
 }
 
-function getPostAgeMs(post) {
-  const created = Date.parse(post?.created_time || '');
-  if (!Number.isFinite(created)) return null;
-  return Math.max(0, Date.now() - created);
-}
-
 function jsonError(res, status, message, extra = {}) {
   return res.status(status).json({ success: false, message, ...extra });
 }
@@ -50,10 +43,8 @@ export default async function handler(req, res) {
 
   try {
     const latestPost = await graphGetLatestPost(pageId, accessToken);
-    const ageMs = getPostAgeMs(latestPost);
-    const withinFirstConfirmWindow = ageMs !== null && ageMs <= FIRST_CONFIRM_MAX_AGE_MS;
 
-    // Preview only: used on every button press to detect whether the latest Post ID changed.
+    // Preview only: used on every button press to detect the current latest Post ID.
     if (req.method === 'GET') {
       return res.status(200).json({
         success: true,
@@ -61,9 +52,7 @@ export default async function handler(req, res) {
         post_id: latestPost.id,
         created_time: latestPost.created_time || '',
         permalink_url: latestPost.permalink_url || '',
-        message: latestPost.message || '',
-        age_ms: ageMs,
-        within_first_confirm_window: withinFirstConfirmWindow
+        message: latestPost.message || ''
       });
     }
 
@@ -77,7 +66,7 @@ export default async function handler(req, res) {
       return jsonError(res, 400, '❌ 缺少 Post ID');
     }
 
-    // Race protection: never trigger if Facebook latest Post changed after the user checked it.
+    // Race protection: never trigger if the latest Facebook Post changed after checking.
     if (expectedPostId !== latestPost.id) {
       return jsonError(res, 409, '❌ 最新 Post ID 已改变，请重新确认', {
         post_changed: true,

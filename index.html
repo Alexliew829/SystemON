@@ -63,6 +63,19 @@
       cursor: pointer;
     }
     .btn:disabled { opacity: 0.62; cursor: not-allowed; }
+    .end-btn {
+      width: 100%;
+      margin-top: 12px;
+      border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 16px;
+      padding: 13px 14px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #dce9f2;
+      background: rgba(255,255,255,0.07);
+      cursor: pointer;
+    }
+    .end-btn:disabled { opacity: 0.42; cursor: not-allowed; }
     .status {
       margin-top: 18px;
       min-height: 58px;
@@ -81,6 +94,7 @@
     .status.loading { color: #d9f6ff; border-color: rgba(79, 230, 255, 0.28); }
     .status.ok { color: #caffdf; border-color: rgba(74, 224, 140, 0.38); }
     .status.err { color: #ffd1d1; border-color: rgba(255, 105, 105, 0.45); }
+    .status.locked { color: #ffe3a6; border-color: rgba(255, 187, 73, 0.42); }
     .footer { margin-top: 16px; font-size: 12px; color: #6f96ad; }
 
     .overlay {
@@ -122,35 +136,51 @@
   <main class="card">
     <img class="icon" src="/icon.png" alt="启动倒数" />
     <h1>启动倒数</h1>
-    <p class="note">第一次启动新贴文需要确认；同一 Post 后续可直接再次启动。</p>
+    <p class="note">新 Post 第一次需要确认；同一 Post 后续可直接再次启动。</p>
 
     <button id="startBtn" class="btn">▶ 启动倒数</button>
+    <button id="endBtn" class="end-btn" disabled>🔒 结束本场直播</button>
     <div id="status" class="status">准备就绪</div>
-    <div class="footer">Lover Legend Gardening · V6.2</div>
+    <div class="footer">Lover Legend Gardening · V6.3</div>
   </main>
 
-  <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+  <div id="startOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="startConfirmTitle">
     <div class="confirm-box">
-      <h2 id="confirmTitle">确认第一次启动？</h2>
-      <p id="confirmText">这是新的 Facebook Post。确认后，本 Post 后续再次启动将不再询问。</p>
+      <h2 id="startConfirmTitle">确认第一次启动？</h2>
+      <p>这是新的 Facebook Post。确认后，本 Post 后续再次启动将不再询问。</p>
       <div class="confirm-actions">
-        <button id="cancelBtn" class="cancel">取消</button>
-        <button id="confirmBtn" class="confirm">确认启动</button>
+        <button id="startCancelBtn" class="cancel">取消</button>
+        <button id="startConfirmBtn" class="confirm">确认启动</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="endOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="endConfirmTitle">
+    <div class="confirm-box">
+      <h2 id="endConfirmTitle">结束本场直播？</h2>
+      <p>锁定当前 Post 后，再误触「启动倒数」也不会执行；检测到新的 Post ID 会自动解锁。</p>
+      <div class="confirm-actions">
+        <button id="endCancelBtn" class="cancel">取消</button>
+        <button id="endConfirmBtn" class="confirm">确认结束</button>
       </div>
     </div>
   </div>
 
   <script>
-    const CONFIRMED_KEY = 'systemon_confirmed_post_id_v62';
-    const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+    const CONFIRMED_KEY = 'systemon_confirmed_post_id_v63';
+    const ENDED_KEY = 'systemon_ended_post_id_v63';
 
-    const btn = document.getElementById('startBtn');
+    const startBtn = document.getElementById('startBtn');
+    const endBtn = document.getElementById('endBtn');
     const status = document.getElementById('status');
-    const overlay = document.getElementById('overlay');
-    const cancelBtn = document.getElementById('cancelBtn');
-    const confirmBtn = document.getElementById('confirmBtn');
+    const startOverlay = document.getElementById('startOverlay');
+    const endOverlay = document.getElementById('endOverlay');
+    const startCancelBtn = document.getElementById('startCancelBtn');
+    const startConfirmBtn = document.getElementById('startConfirmBtn');
+    const endCancelBtn = document.getElementById('endCancelBtn');
+    const endConfirmBtn = document.getElementById('endConfirmBtn');
 
-    let pendingPost = null;
+    let pendingPostId = '';
 
     function showStatus(type, text) {
       status.className = 'status' + (type ? ' ' + type : '');
@@ -158,8 +188,14 @@
     }
 
     function setBusy(isBusy, text) {
-      btn.disabled = isBusy;
-      if (text) btn.textContent = text;
+      startBtn.disabled = isBusy;
+      if (text) startBtn.textContent = text;
+    }
+
+    function syncEndButton() {
+      const confirmed = localStorage.getItem(CONFIRMED_KEY) || '';
+      const ended = localStorage.getItem(ENDED_KEY) || '';
+      endBtn.disabled = !confirmed || confirmed === ended;
     }
 
     async function getLatestPost() {
@@ -189,7 +225,7 @@
     }
 
     async function doTrigger(postId, rememberConfirmation) {
-      overlay.classList.remove('show');
+      startOverlay.classList.remove('show');
       setBusy(true, '⏳ 启动中...');
       showStatus('loading', '正在启动倒数...');
 
@@ -199,71 +235,107 @@
           localStorage.setItem(CONFIRMED_KEY, postId);
         }
         showStatus('ok', '✅ 已启动倒数');
-        btn.textContent = '▶ 再次启动';
+        startBtn.textContent = '▶ 再次启动';
+        syncEndButton();
       } catch (error) {
         showStatus('err', '❌ ' + (error.message || '启动失败，请重试'));
-        btn.textContent = '▶ 启动倒数';
+        startBtn.textContent = '▶ 启动倒数';
       } finally {
-        btn.disabled = false;
-        pendingPost = null;
+        startBtn.disabled = false;
+        pendingPostId = '';
       }
     }
 
-    btn.addEventListener('click', async () => {
+    startBtn.addEventListener('click', async () => {
       setBusy(true, '⏳ 检查中...');
       showStatus('loading', '正在检查最新 Facebook Post...');
 
       try {
         const latest = await getLatestPost();
         const confirmedPostId = localStorage.getItem(CONFIRMED_KEY) || '';
+        const endedPostId = localStorage.getItem(ENDED_KEY) || '';
 
-        // Same Post ID already confirmed once: no age check, no second confirmation.
+        // New Post ID automatically clears the previous ended/confirmed state.
+        if (endedPostId && endedPostId !== latest.post_id) {
+          localStorage.removeItem(ENDED_KEY);
+          localStorage.removeItem(CONFIRMED_KEY);
+        }
+
+        const currentEndedPostId = localStorage.getItem(ENDED_KEY) || '';
+        if (currentEndedPostId === latest.post_id) {
+          showStatus('locked', '🔒 本场直播已结束，当前 Post 已锁定');
+          startBtn.textContent = '▶ 启动倒数';
+          startBtn.disabled = false;
+          syncEndButton();
+          return;
+        }
+
         if (confirmedPostId === latest.post_id) {
           await doTrigger(latest.post_id, false);
           return;
         }
 
-        // New Post ID: reset old confirmation immediately.
+        // New Post ID: clear old confirmation and ask once.
         localStorage.removeItem(CONFIRMED_KEY);
-
-        const ageMs = Number(latest.age_ms);
-        const ageValid = Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= TWO_HOURS_MS;
-        if (!ageValid) {
-          const hours = Number.isFinite(ageMs) ? (ageMs / 3600000).toFixed(1) : '?';
-          throw new Error(`最新 Post 已超过 2 小时（约 ${hours} 小时），禁止第一次启动`);
-        }
-
-        pendingPost = latest;
+        pendingPostId = latest.post_id;
         showStatus('', '等待确认');
-        btn.textContent = '▶ 启动倒数';
-        btn.disabled = false;
-        overlay.classList.add('show');
+        startBtn.textContent = '▶ 启动倒数';
+        startBtn.disabled = false;
+        startOverlay.classList.add('show');
       } catch (error) {
         showStatus('err', '❌ ' + (error.message || '检查失败，请重试'));
-        btn.textContent = '▶ 启动倒数';
-        btn.disabled = false;
+        startBtn.textContent = '▶ 启动倒数';
+        startBtn.disabled = false;
       }
     });
 
-    cancelBtn.addEventListener('click', () => {
-      overlay.classList.remove('show');
-      pendingPost = null;
+    startCancelBtn.addEventListener('click', () => {
+      startOverlay.classList.remove('show');
+      pendingPostId = '';
       showStatus('', '已取消');
     });
 
-    confirmBtn.addEventListener('click', async () => {
-      if (!pendingPost?.post_id) {
-        overlay.classList.remove('show');
+    startConfirmBtn.addEventListener('click', async () => {
+      if (!pendingPostId) {
+        startOverlay.classList.remove('show');
         showStatus('err', '❌ Post ID 已失效，请重新点击启动');
         return;
       }
-      confirmBtn.disabled = true;
+      startConfirmBtn.disabled = true;
       try {
-        await doTrigger(pendingPost.post_id, true);
+        await doTrigger(pendingPostId, true);
       } finally {
-        confirmBtn.disabled = false;
+        startConfirmBtn.disabled = false;
       }
     });
+
+    endBtn.addEventListener('click', () => {
+      const confirmedPostId = localStorage.getItem(CONFIRMED_KEY) || '';
+      if (!confirmedPostId) {
+        showStatus('err', '❌ 目前没有已确认的 Post');
+        return;
+      }
+      endOverlay.classList.add('show');
+    });
+
+    endCancelBtn.addEventListener('click', () => {
+      endOverlay.classList.remove('show');
+    });
+
+    endConfirmBtn.addEventListener('click', () => {
+      const confirmedPostId = localStorage.getItem(CONFIRMED_KEY) || '';
+      endOverlay.classList.remove('show');
+      if (!confirmedPostId) {
+        showStatus('err', '❌ 目前没有已确认的 Post');
+        return;
+      }
+      localStorage.setItem(ENDED_KEY, confirmedPostId);
+      showStatus('locked', '🔒 本场直播已结束，当前 Post 已锁定');
+      startBtn.textContent = '▶ 启动倒数';
+      syncEndButton();
+    });
+
+    syncEndButton();
   </script>
 </body>
 </html>
