@@ -62,10 +62,7 @@
       box-shadow: 0 12px 30px rgba(255, 93, 62, 0.28);
       cursor: pointer;
     }
-    .btn:disabled {
-      opacity: 0.62;
-      cursor: not-allowed;
-    }
+    .btn:disabled { opacity: 0.62; cursor: not-allowed; }
     .status {
       margin-top: 18px;
       min-height: 58px;
@@ -79,60 +76,192 @@
       background: rgba(255,255,255,0.05);
       border: 1px solid rgba(255,255,255,0.08);
       color: #bdd5e5;
+      white-space: pre-line;
     }
     .status.loading { color: #d9f6ff; border-color: rgba(79, 230, 255, 0.28); }
     .status.ok { color: #caffdf; border-color: rgba(74, 224, 140, 0.38); }
     .status.err { color: #ffd1d1; border-color: rgba(255, 105, 105, 0.45); }
-    .footer {
-      margin-top: 16px;
-      font-size: 12px;
-      color: #6f96ad;
+    .footer { margin-top: 16px; font-size: 12px; color: #6f96ad; }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+      background: rgba(0,0,0,0.68);
+      z-index: 10;
     }
+    .overlay.show { display: flex; }
+    .confirm-box {
+      width: min(92vw, 390px);
+      padding: 24px 20px 20px;
+      border-radius: 22px;
+      background: #10283c;
+      border: 1px solid rgba(124, 211, 255, 0.32);
+      box-shadow: 0 18px 50px rgba(0,0,0,0.5);
+      text-align: center;
+    }
+    .confirm-box h2 { margin: 0 0 10px; font-size: 24px; }
+    .confirm-box p { margin: 0 0 18px; color: #bcd4e4; line-height: 1.55; }
+    .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .confirm-actions button {
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 10px;
+      font-size: 17px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .cancel { background: #365066; color: #edf7ff; }
+    .confirm { background: linear-gradient(135deg, #ff3e4d 0%, #ff9f22 100%); color: white; }
   </style>
 </head>
 <body>
   <main class="card">
     <img class="icon" src="/icon.png" alt="启动倒数" />
     <h1>启动倒数</h1>
-    <p class="note">确认 Make 已设好本场直播 Post ID，并保持 Active。</p>
+    <p class="note">第一次启动新贴文需要确认；同一 Post 后续可直接再次启动。</p>
 
     <button id="startBtn" class="btn">▶ 启动倒数</button>
     <div id="status" class="status">准备就绪</div>
-    <div class="footer">Lover Legend Gardening</div>
+    <div class="footer">Lover Legend Gardening · V6.2</div>
   </main>
 
+  <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+    <div class="confirm-box">
+      <h2 id="confirmTitle">确认第一次启动？</h2>
+      <p id="confirmText">这是新的 Facebook Post。确认后，本 Post 后续再次启动将不再询问。</p>
+      <div class="confirm-actions">
+        <button id="cancelBtn" class="cancel">取消</button>
+        <button id="confirmBtn" class="confirm">确认启动</button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    const CONFIRMED_KEY = 'systemon_confirmed_post_id_v62';
+    const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
+
     const btn = document.getElementById('startBtn');
     const status = document.getElementById('status');
+    const overlay = document.getElementById('overlay');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const confirmBtn = document.getElementById('confirmBtn');
+
+    let pendingPost = null;
 
     function showStatus(type, text) {
       status.className = 'status' + (type ? ' ' + type : '');
       status.textContent = text;
     }
 
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      btn.textContent = '⏳ 启动中...';
+    function setBusy(isBusy, text) {
+      btn.disabled = isBusy;
+      if (text) btn.textContent = text;
+    }
+
+    async function getLatestPost() {
+      const response = await fetch('/api/trigger', { method: 'GET', cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.message || '无法检查最新贴文');
+      }
+      return data;
+    }
+
+    async function triggerPost(postId) {
+      const response = await fetch('/api/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ post_id: postId })
+      });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) {
+        if (data.post_changed) {
+          localStorage.removeItem(CONFIRMED_KEY);
+        }
+        throw new Error(data.message || '启动失败');
+      }
+      return data;
+    }
+
+    async function doTrigger(postId, rememberConfirmation) {
+      overlay.classList.remove('show');
+      setBusy(true, '⏳ 启动中...');
       showStatus('loading', '正在启动倒数...');
 
       try {
-        const response = await fetch('/api/trigger', {
-          method: 'GET',
-          cache: 'no-store'
-        });
-        const data = await response.json();
-
-        if (!response.ok || data.success !== true) {
-          throw new Error(data.message || '启动失败');
+        await triggerPost(postId);
+        if (rememberConfirmation) {
+          localStorage.setItem(CONFIRMED_KEY, postId);
         }
-
         showStatus('ok', '✅ 已启动倒数');
         btn.textContent = '▶ 再次启动';
       } catch (error) {
         showStatus('err', '❌ ' + (error.message || '启动失败，请重试'));
-        btn.textContent = '▶ 再次启动';
+        btn.textContent = '▶ 启动倒数';
       } finally {
         btn.disabled = false;
+        pendingPost = null;
+      }
+    }
+
+    btn.addEventListener('click', async () => {
+      setBusy(true, '⏳ 检查中...');
+      showStatus('loading', '正在检查最新 Facebook Post...');
+
+      try {
+        const latest = await getLatestPost();
+        const confirmedPostId = localStorage.getItem(CONFIRMED_KEY) || '';
+
+        // Same Post ID already confirmed once: no age check, no second confirmation.
+        if (confirmedPostId === latest.post_id) {
+          await doTrigger(latest.post_id, false);
+          return;
+        }
+
+        // New Post ID: reset old confirmation immediately.
+        localStorage.removeItem(CONFIRMED_KEY);
+
+        const ageMs = Number(latest.age_ms);
+        const ageValid = Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= TWO_HOURS_MS;
+        if (!ageValid) {
+          const hours = Number.isFinite(ageMs) ? (ageMs / 3600000).toFixed(1) : '?';
+          throw new Error(`最新 Post 已超过 2 小时（约 ${hours} 小时），禁止第一次启动`);
+        }
+
+        pendingPost = latest;
+        showStatus('', '等待确认');
+        btn.textContent = '▶ 启动倒数';
+        btn.disabled = false;
+        overlay.classList.add('show');
+      } catch (error) {
+        showStatus('err', '❌ ' + (error.message || '检查失败，请重试'));
+        btn.textContent = '▶ 启动倒数';
+        btn.disabled = false;
+      }
+    });
+
+    cancelBtn.addEventListener('click', () => {
+      overlay.classList.remove('show');
+      pendingPost = null;
+      showStatus('', '已取消');
+    });
+
+    confirmBtn.addEventListener('click', async () => {
+      if (!pendingPost?.post_id) {
+        overlay.classList.remove('show');
+        showStatus('err', '❌ Post ID 已失效，请重新点击启动');
+        return;
+      }
+      confirmBtn.disabled = true;
+      try {
+        await doTrigger(pendingPost.post_id, true);
+      } finally {
+        confirmBtn.disabled = false;
       }
     });
   </script>

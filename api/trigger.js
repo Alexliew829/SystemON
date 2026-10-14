@@ -1,15 +1,5 @@
 const GRAPH_VERSION = 'v23.0';
-
-function malaysiaHour() {
-  const now = new Date();
-  const hour = now.getUTCHours() + 8;
-  return hour >= 24 ? hour - 24 : hour;
-}
-
-function inTriggerWindow() {
-  const hour = malaysiaHour();
-  return hour >= 20 || hour < 4;
-}
+const FIRST_CONFIRM_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 async function graphGetLatestPost(pageId, accessToken) {
   const fields = 'id,created_time,message,permalink_url';
@@ -35,27 +25,66 @@ async function graphGetLatestPost(pageId, accessToken) {
   return post;
 }
 
+function getPostAgeMs(post) {
+  const created = Date.parse(post?.created_time || '');
+  if (!Number.isFinite(created)) return null;
+  return Math.max(0, Date.now() - created);
+}
+
+function jsonError(res, status, message, extra = {}) {
+  return res.status(status).json({ success: false, message, ...extra });
+}
+
 export default async function handler(req, res) {
   const makeWebhookUrl = process.env.WEBHOOK_URL;
   const pageId = process.env.PAGE_ID;
   const accessToken = process.env.FB_ACCESS_TOKEN;
 
   if (!makeWebhookUrl || !pageId || !accessToken) {
-    return res.status(500).json({
-      success: false,
-      message: '❌ 系统环境变量未完整设置（WEBHOOK_URL / PAGE_ID / FB_ACCESS_TOKEN）'
-    });
-  }
-
-  if (!inTriggerWindow()) {
-    return res.status(403).json({
-      success: false,
-      message: '⛔ 当前不在触发时段（每天20:00~04:00）'
-    });
+    return jsonError(
+      res,
+      500,
+      '❌ 系统环境变量未完整设置（WEBHOOK_URL / PAGE_ID / FB_ACCESS_TOKEN）'
+    );
   }
 
   try {
     const latestPost = await graphGetLatestPost(pageId, accessToken);
+    const ageMs = getPostAgeMs(latestPost);
+    const withinFirstConfirmWindow = ageMs !== null && ageMs <= FIRST_CONFIRM_MAX_AGE_MS;
+
+    // Preview only: used on every button press to detect whether the latest Post ID changed.
+    if (req.method === 'GET') {
+      return res.status(200).json({
+        success: true,
+        mode: 'preview',
+        post_id: latestPost.id,
+        created_time: latestPost.created_time || '',
+        permalink_url: latestPost.permalink_url || '',
+        message: latestPost.message || '',
+        age_ms: ageMs,
+        within_first_confirm_window: withinFirstConfirmWindow
+      });
+    }
+
+    if (req.method !== 'POST') {
+      res.setHeader('Allow', 'GET, POST');
+      return jsonError(res, 405, '❌ 不支持这个请求方式');
+    }
+
+    const expectedPostId = req.body?.post_id;
+    if (!expectedPostId || typeof expectedPostId !== 'string') {
+      return jsonError(res, 400, '❌ 缺少 Post ID');
+    }
+
+    // Race protection: never trigger if Facebook latest Post changed after the user checked it.
+    if (expectedPostId !== latestPost.id) {
+      return jsonError(res, 409, '❌ 最新 Post ID 已改变，请重新确认', {
+        post_changed: true,
+        post_id: latestPost.id,
+        created_time: latestPost.created_time || ''
+      });
+    }
 
     const makeResponse = await fetch(makeWebhookUrl, {
       method: 'POST',
@@ -69,9 +98,7 @@ export default async function handler(req, res) {
 
     const makeText = await makeResponse.text().catch(() => '');
     if (!makeResponse.ok) {
-      return res.status(502).json({
-        success: false,
-        message: '❌ Make Webhook 接收失败',
+      return jsonError(res, 502, '❌ Make Webhook 接收失败', {
         detail: makeText.slice(0, 300)
       });
     }
@@ -85,9 +112,7 @@ export default async function handler(req, res) {
       permalink_url: latestPost.permalink_url || ''
     });
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: `❌ ${error.message || '系统错误'}`,
+    return jsonError(res, 500, `❌ ${error.message || '系统错误'}`, {
       code: error.code || '',
       facebook: error.facebook || undefined
     });
