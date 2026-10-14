@@ -19,6 +19,86 @@ function looksLikeFullPostId(input) {
   return /^\d+_\d+$/.test(String(input || '').trim());
 }
 
+function isFacebookHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  return host === 'facebook.com' || host.endsWith('.facebook.com');
+}
+
+function isFacebookShareUrl(input) {
+  try {
+    const url = new URL(String(input || '').trim());
+    return isFacebookHost(url.hostname) && /\/share\//i.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&#x2F;/gi, '/')
+    .replace(/&#47;/g, '/')
+    .replace(/&quot;/g, '\"')
+    .replace(/&#39;/g, "'");
+}
+
+function extractCanonicalUrl(html) {
+  const source = String(html || '');
+  const patterns = [
+    /<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i,
+    /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i,
+    /<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i
+  ];
+  for (const pattern of patterns) {
+    const match = source.match(pattern);
+    if (match?.[1]) return decodeHtmlEntities(match[1]);
+  }
+  return '';
+}
+
+async function resolveFacebookShareUrl(input) {
+  const raw = String(input || '').trim();
+  let parsed;
+  try { parsed = new URL(raw); } catch { return raw; }
+  if (!isFacebookHost(parsed.hostname)) return raw;
+
+  // Facebook mobile Share links often redirect to the canonical post/video URL.
+  // Follow the redirect server-side so the user can simply paste the Share link copied on mobile.
+  const response = await fetch(raw, {
+    method: 'GET',
+    redirect: 'follow',
+    cache: 'no-store',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1',
+      'Accept-Language': 'en-US,en;q=0.9'
+    }
+  });
+
+  const finalUrl = String(response.url || '').trim();
+  if (finalUrl && finalUrl !== raw && isFacebookHost(new URL(finalUrl).hostname) && !/\/share\//i.test(new URL(finalUrl).pathname)) {
+    return finalUrl;
+  }
+
+  // Some Facebook share URLs return an HTML landing page instead of an HTTP redirect.
+  // In that case, extract the canonical/og:url target from the HTML.
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('text/html')) {
+    const html = await response.text();
+    const canonical = extractCanonicalUrl(html);
+    if (canonical) {
+      try {
+        const c = new URL(canonical);
+        if (isFacebookHost(c.hostname) && !/\/share\//i.test(c.pathname)) return canonical;
+      } catch {}
+    }
+  }
+
+  const err = new Error('这是 Facebook 分享短链接，但系统暂时无法解析成正式贴文网址。请在手机浏览器打开该分享链接后，再复制地址栏中的 Facebook 正式网址。');
+  err.code = 'SHARE_URL_UNRESOLVED';
+  throw err;
+}
+
 function objectContainsNeedle(obj, needle) {
   if (!obj || !needle) return false;
   try {
@@ -110,14 +190,17 @@ async function resolveInputToPost(input, pageId, accessToken) {
     throw err;
   }
 
+  // Mobile Facebook often copies a /share/... short URL. Resolve it first.
+  const resolvedRaw = isFacebookShareUrl(raw) ? await resolveFacebookShareUrl(raw) : raw;
+
   // Best case: user already pasted the full Graph Post ID.
-  if (looksLikeFullPostId(raw)) {
-    return validatePostId(raw, accessToken, pageId);
+  if (looksLikeFullPostId(resolvedRaw)) {
+    return validatePostId(resolvedRaw, accessToken, pageId);
   }
 
   // If a Page post URL contains story_fbid or posts/<id>, try the full PageID_PostID first.
-  const storyMatch = raw.match(/[?&]story_fbid=(\d+)/i);
-  const postsMatch = raw.match(/\/posts\/(\d+)/i);
+  const storyMatch = resolvedRaw.match(/[?&]story_fbid=(\d+)/i);
+  const postsMatch = resolvedRaw.match(/\/posts\/(\d+)/i);
   const candidate = storyMatch?.[1] || postsMatch?.[1] || '';
   if (candidate) {
     try {
@@ -128,7 +211,7 @@ async function resolveInputToPost(input, pageId, accessToken) {
   }
 
   // For Live/video/photo links or a bare numeric ID, resolve against recent Page feed.
-  const resolved = await resolveFromFeed(raw, pageId, accessToken);
+  const resolved = await resolveFromFeed(resolvedRaw, pageId, accessToken);
   if (!resolved) {
     const err = new Error('找不到对应的 Facebook 直播贴文。请确认直播已经建立，并复制这场直播的链接。');
     err.code = 'POST_NOT_FOUND';

@@ -35,11 +35,11 @@
     <div class="top">
       <img class="icon" src="/icon.png" alt="启动倒数图标" />
       <h1>启动倒数</h1>
-      <div class="sub">Make 保持 Active 即可。开播后用手机复制这场 Facebook Live 链接，贴在下面，确认正确贴文后再启动倒数。</div>
+      <div class="sub">Make 保持 Active 即可。开播后用手机点 Facebook「分享 → 复制链接」，直接贴在下面；系统会尝试自动解析分享短链接并确认正确贴文。</div>
     </div>
 
-    <label class="label" for="liveInput">Facebook Live 链接 / Post ID</label>
-    <textarea id="liveInput" class="input" rows="2" placeholder="例如：https://www.facebook.com/.../videos/123456...\n或 101411206173416_123456..."></textarea>
+    <label class="label" for="liveInput">Facebook Live 分享链接 / 正式链接 / Post ID</label>
+    <textarea id="liveInput" class="input" rows="2" placeholder="例如：https://www.facebook.com/share/...\n或 https://www.facebook.com/.../videos/123456...\n或 101411206173416_123456..."></textarea>
     <div class="row">
       <button id="checkBtn" class="smallbtn" type="button">检查直播</button>
       <button id="clearBtn" class="smallbtn secondary" type="button">清除</button>
@@ -120,7 +120,7 @@
 
       checkBtn.disabled = true;
       triggerBtn.disabled = true;
-      setStatus('loading', '正在检查 Facebook 直播贴文…');
+      setStatus('loading', '正在解析链接并检查 Facebook 直播贴文…');
       preview.classList.remove('show');
 
       try {
