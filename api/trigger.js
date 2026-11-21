@@ -1,8 +1,12 @@
 const GRAPH_VERSION = 'v23.0';
+const FALLBACK_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
-async function graphGetLatestPost(pageId, accessToken) {
-  const fields = 'id,created_time,message,permalink_url';
-  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(pageId)}/posts?limit=1&fields=${encodeURIComponent(fields)}&access_token=${encodeURIComponent(accessToken)}`;
+async function graphGet(path, params, accessToken) {
+  const query = new URLSearchParams({
+    ...params,
+    access_token: accessToken
+  });
+  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${path}?${query.toString()}`;
 
   const response = await fetch(url, { cache: 'no-store' });
   const data = await response.json().catch(() => ({}));
@@ -14,14 +18,126 @@ async function graphGetLatestPost(pageId, accessToken) {
     throw error;
   }
 
+  return data;
+}
+
+function normalizePostId(pageId, objectId) {
+  const id = String(objectId || '').trim();
+  if (!id) return '';
+  if (id.includes('_')) return id;
+  return `${pageId}_${id}`;
+}
+
+function isLiveNow(item) {
+  return String(item?.status || '').toUpperCase() === 'LIVE_NOW';
+}
+
+async function graphGetActiveLiveVideo(pageId, accessToken) {
+  // Preferred path: read the Page object and expand its live_videos edge.
+  // Meta documents LIVE_NOW as the status for a currently live broadcast.
+  const fields = 'live_videos.limit(10){id,status,permalink_url,title,creation_time}';
+  const data = await graphGet(
+    encodeURIComponent(pageId),
+    { fields },
+    accessToken
+  );
+
+  const items = Array.isArray(data?.live_videos?.data) ? data.live_videos.data : [];
+  const live = items.find(isLiveNow);
+  if (!live?.id) return null;
+
+  return {
+    id: normalizePostId(pageId, live.id),
+    live_video_id: String(live.id),
+    created_time: live.creation_time || '',
+    permalink_url: live.permalink_url || '',
+    message: live.title || '',
+    source: 'live_video'
+  };
+}
+
+function attachmentLooksLikeVideo(attachment) {
+  const mediaType = String(attachment?.media_type || '').toLowerCase();
+  const type = String(attachment?.type || '').toLowerCase();
+  const url = String(attachment?.url || '').toLowerCase();
+  const targetUrl = String(attachment?.target?.url || '').toLowerCase();
+
+  return (
+    mediaType.includes('video') ||
+    type.includes('video') ||
+    url.includes('/videos/') ||
+    targetUrl.includes('/videos/')
+  );
+}
+
+function postLooksLikeVideo(post) {
+  const permalink = String(post?.permalink_url || '').toLowerCase();
+  if (permalink.includes('/videos/')) return true;
+
+  const attachments = Array.isArray(post?.attachments?.data) ? post.attachments.data : [];
+  return attachments.some(attachmentLooksLikeVideo);
+}
+
+function isRecent(createdTime) {
+  const created = Date.parse(createdTime || '');
+  if (!Number.isFinite(created)) return false;
+  const age = Date.now() - created;
+  return age >= -5 * 60 * 1000 && age <= FALLBACK_MAX_AGE_MS;
+}
+
+async function graphGetLatestVideoPostFallback(pageId, accessToken) {
+  const fields = 'id,created_time,message,permalink_url,attachments{media_type,type,target,url}';
+  const data = await graphGet(
+    `${encodeURIComponent(pageId)}/posts`,
+    { limit: '1', fields },
+    accessToken
+  );
+
   const post = Array.isArray(data?.data) ? data.data[0] : null;
-  if (!post?.id) {
-    const error = new Error('无法取得最新 Facebook 贴文 ID');
-    error.code = 'NO_POST_ID';
-    throw error;
+  if (!post?.id) return null;
+
+  // Important safety rule: V6.3 trusted the newest Page post unconditionally.
+  // V6.4 only accepts the fallback when that newest post is itself a recent video post.
+  if (!postLooksLikeVideo(post) || !isRecent(post.created_time)) {
+    return null;
   }
 
-  return post;
+  return {
+    id: String(post.id),
+    live_video_id: '',
+    created_time: post.created_time || '',
+    permalink_url: post.permalink_url || '',
+    message: post.message || '',
+    source: 'latest_video_post_fallback'
+  };
+}
+
+async function graphResolveCountdownTarget(pageId, accessToken) {
+  let liveLookupError = null;
+
+  try {
+    const live = await graphGetActiveLiveVideo(pageId, accessToken);
+    if (live) return live;
+  } catch (error) {
+    // Some Page tokens/apps cannot read live_videos. Keep a compatibility fallback,
+    // but never fall back to an arbitrary normal Page post.
+    liveLookupError = error;
+  }
+
+  const fallback = await graphGetLatestVideoPostFallback(pageId, accessToken);
+  if (fallback) {
+    return {
+      ...fallback,
+      warning: liveLookupError ? 'LIVE_LOOKUP_UNAVAILABLE' : ''
+    };
+  }
+
+  const error = new Error(
+    '无法确认当前直播 Post ID。为避免倒数留言到错误贴文，本次未启动。请确认直播已经开始后再试。'
+  );
+  error.code = 'NO_LIVE_TARGET';
+  if (liveLookupError?.facebook) error.facebook = liveLookupError.facebook;
+  throw error;
 }
 
 function jsonError(res, status, message, extra = {}) {
@@ -42,17 +158,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    const latestPost = await graphGetLatestPost(pageId, accessToken);
+    const target = await graphResolveCountdownTarget(pageId, accessToken);
 
-    // Preview only: used on every button press to detect the current latest Post ID.
+    // Preview only: every button press resolves the current live/video target first.
     if (req.method === 'GET') {
       return res.status(200).json({
         success: true,
         mode: 'preview',
-        post_id: latestPost.id,
-        created_time: latestPost.created_time || '',
-        permalink_url: latestPost.permalink_url || '',
-        message: latestPost.message || ''
+        post_id: target.id,
+        live_video_id: target.live_video_id || '',
+        source: target.source,
+        warning: target.warning || '',
+        created_time: target.created_time || '',
+        permalink_url: target.permalink_url || '',
+        message: target.message || ''
       });
     }
 
@@ -66,12 +185,13 @@ export default async function handler(req, res) {
       return jsonError(res, 400, '❌ 缺少 Post ID');
     }
 
-    // Race protection: never trigger if the latest Facebook Post changed after checking.
-    if (expectedPostId !== latestPost.id) {
-      return jsonError(res, 409, '❌ 最新 Post ID 已改变，请重新确认', {
+    // Race protection: resolve again immediately before triggering Make.
+    if (expectedPostId !== target.id) {
+      return jsonError(res, 409, '❌ 当前直播 Post ID 已改变，请重新确认', {
         post_changed: true,
-        post_id: latestPost.id,
-        created_time: latestPost.created_time || ''
+        post_id: target.id,
+        source: target.source,
+        created_time: target.created_time || ''
       });
     }
 
@@ -79,8 +199,10 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        post_id: latestPost.id,
+        post_id: target.id,
         trigger: 'manual_countdown',
+        source: target.source,
+        live_video_id: target.live_video_id || '',
         time: new Date().toISOString()
       })
     });
@@ -94,14 +216,18 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      Triggered: 1,
+      triggered: 1,
       message: '✅ 已启动倒数',
-      post_id: latestPost.id,
-      created_time: latestPost.created_time || '',
-      permalink_url: latestPost.permalink_url || ''
+      post_id: target.id,
+      live_video_id: target.live_video_id || '',
+      source: target.source,
+      warning: target.warning || '',
+      created_time: target.created_time || '',
+      permalink_url: target.permalink_url || ''
     });
   } catch (error) {
-    return jsonError(res, 500, `❌ ${error.message || '系统错误'}`, {
+    const status = error.code === 'NO_LIVE_TARGET' ? 409 : 500;
+    return jsonError(res, status, `❌ ${error.message || '系统错误'}`, {
       code: error.code || '',
       facebook: error.facebook || undefined
     });

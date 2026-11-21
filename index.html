@@ -136,12 +136,12 @@
   <main class="card">
     <img class="icon" src="/icon.png" alt="启动倒数" />
     <h1>启动倒数</h1>
-    <p class="note">新 Post 第一次需要确认；同一 Post 后续可直接再次启动。</p>
+    <p class="note">优先识别当前直播；新直播第一次需要确认，同一直播后续可直接再次启动。</p>
 
     <button id="startBtn" class="btn">▶ 启动倒数</button>
     <button id="endBtn" class="end-btn" disabled>🔒 结束本场直播</button>
     <div id="status" class="status">准备就绪</div>
-    <div class="footer">Lover Legend Gardening · V6.3</div>
+    <div class="footer">Lover Legend Gardening · V6.4</div>
   </main>
 
   <div id="startOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="startConfirmTitle">
@@ -167,8 +167,8 @@
   </div>
 
   <script>
-    const CONFIRMED_KEY = 'systemon_confirmed_post_id_v63';
-    const ENDED_KEY = 'systemon_ended_post_id_v63';
+    const CONFIRMED_KEY = 'systemon_confirmed_post_id_v64';
+    const ENDED_KEY = 'systemon_ended_post_id_v64';
 
     const startBtn = document.getElementById('startBtn');
     const endBtn = document.getElementById('endBtn');
@@ -202,7 +202,7 @@
       const response = await fetch('/api/trigger', { method: 'GET', cache: 'no-store' });
       const data = await response.json();
       if (!response.ok || data.success !== true) {
-        throw new Error(data.message || '无法检查最新贴文');
+        throw new Error(data.message || '无法确认当前直播');
       }
       return data;
     }
@@ -248,7 +248,7 @@
 
     startBtn.addEventListener('click', async () => {
       setBusy(true, '⏳ 检查中...');
-      showStatus('loading', '正在检查最新 Facebook Post...');
+      showStatus('loading', '正在确认当前 Facebook 直播...');
 
       try {
         const latest = await getLatestPost();
