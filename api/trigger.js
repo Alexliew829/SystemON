@@ -1,6 +1,7 @@
 const GRAPH_VERSION = 'v23.0';
-const FALLBACK_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 const FACEBOOK_TIMEOUT_MS = 10 * 1000;
+const CANDIDATE_LIMIT = 8;
+const CANDIDATE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const COUNTDOWN_STEPS = [
   { message: '🪴🪴🪴Syetem On 晚上好🪴🪴🪴\n 🌿🌿🌿欢迎来到情人传奇🌿🌿🌿\n🌟🌟🌟感谢参与竞标活动 🌟🌟🌟', waitAfterMs: 2000 },
@@ -73,106 +74,108 @@ async function graphPostComment(postId, message, accessToken) {
   return data.id;
 }
 
-function normalizePostId(pageId, objectId) {
-  const id = String(objectId || '').trim();
-  if (!id) return '';
-  if (id.includes('_')) return id;
-  return `${pageId}_${id}`;
-}
-
-function isLiveNow(item) {
-  return String(item?.status || '').toUpperCase() === 'LIVE_NOW';
-}
-
-async function graphGetActiveLiveVideo(pageId, accessToken) {
-  const fields = 'live_videos.limit(10){id,status,permalink_url,title,creation_time}';
-  const data = await graphGet(encodeURIComponent(pageId), { fields }, accessToken);
-  const items = Array.isArray(data?.live_videos?.data) ? data.live_videos.data : [];
-  const live = items.find(isLiveNow);
-  if (!live?.id) return null;
-
-  return {
-    id: normalizePostId(pageId, live.id),
-    live_video_id: String(live.id),
-    created_time: live.creation_time || '',
-    permalink_url: live.permalink_url || '',
-    message: live.title || '',
-    source: 'live_video'
-  };
-}
-
-function attachmentLooksLikeVideo(attachment) {
-  const mediaType = String(attachment?.media_type || '').toLowerCase();
-  const type = String(attachment?.type || '').toLowerCase();
-  const url = String(attachment?.url || '').toLowerCase();
-  const targetUrl = String(attachment?.target?.url || '').toLowerCase();
-  return mediaType.includes('video') || type.includes('video') || url.includes('/videos/') || targetUrl.includes('/videos/');
-}
-
-function postLooksLikeVideo(post) {
+function looksLikeVideo(post) {
   const permalink = String(post?.permalink_url || '').toLowerCase();
   if (permalink.includes('/videos/')) return true;
   const attachments = Array.isArray(post?.attachments?.data) ? post.attachments.data : [];
-  return attachments.some(attachmentLooksLikeVideo);
+  return attachments.some(item => {
+    const mediaType = String(item?.media_type || '').toLowerCase();
+    const type = String(item?.type || '').toLowerCase();
+    const url = String(item?.url || '').toLowerCase();
+    const targetUrl = String(item?.target?.url || '').toLowerCase();
+    return mediaType.includes('video') || type.includes('video') || url.includes('/videos/') || targetUrl.includes('/videos/');
+  });
 }
 
 function isRecent(createdTime) {
-  const created = Date.parse(createdTime || '');
-  if (!Number.isFinite(created)) return false;
-  const age = Date.now() - created;
-  return age >= -5 * 60 * 1000 && age <= FALLBACK_MAX_AGE_MS;
+  const ts = Date.parse(createdTime || '');
+  if (!Number.isFinite(ts)) return true;
+  const age = Date.now() - ts;
+  return age >= -5 * 60 * 1000 && age <= CANDIDATE_MAX_AGE_MS;
 }
 
-async function graphGetLatestVideoPostForTest(pageId, accessToken) {
-  const fields = 'id,created_time,message,permalink_url,attachments{media_type,type,target,url}';
-  const data = await graphGet(`${encodeURIComponent(pageId)}/posts`, { limit: '1', fields }, accessToken);
-  const post = Array.isArray(data?.data) ? data.data[0] : null;
-  if (!post?.id || !postLooksLikeVideo(post) || !isRecent(post.created_time)) return null;
-
+function normalizeCandidate(post, source) {
+  if (!post?.id) return null;
   return {
     id: String(post.id),
-    live_video_id: '',
     created_time: post.created_time || '',
     permalink_url: post.permalink_url || '',
     message: post.message || '',
-    source: 'test_latest_video_post'
+    is_published: post.is_published !== false,
+    is_video: looksLikeVideo(post),
+    source
   };
 }
 
-async function resolveLiveTarget(pageId, accessToken) {
-  let live;
-  try {
-    live = await graphGetActiveLiveVideo(pageId, accessToken);
-  } catch (error) {
-    const wrapped = new Error(`无法读取当前直播状态：${error.message}`);
-    wrapped.code = error.code || 'LIVE_LOOKUP_FAILED';
-    wrapped.facebook = error.facebook || null;
-    throw wrapped;
-  }
-
-  if (live) return live;
-
-  const error = new Error('无法确认当前正在直播。为避免倒数发送到旧直播，本次已停止。请确认 Facebook 已正式进入直播状态后再试。');
-  error.code = 'NO_ACTIVE_LIVE';
-  throw error;
+async function readEdge(pageId, edge, accessToken) {
+  const fields = 'id,created_time,message,permalink_url,is_published,attachments{media_type,type,target,url}';
+  const data = await graphGet(`${encodeURIComponent(pageId)}/${edge}`, {
+    limit: String(CANDIDATE_LIMIT),
+    fields
+  }, accessToken);
+  return Array.isArray(data?.data) ? data.data : [];
 }
 
-async function resolveTestTarget(pageId, accessToken) {
-  const target = await graphGetLatestVideoPostForTest(pageId, accessToken);
-  if (target) return target;
+async function getCandidates(pageId, accessToken) {
+  const results = await Promise.allSettled([
+    readEdge(pageId, 'feed', accessToken),
+    readEdge(pageId, 'posts', accessToken)
+  ]);
 
-  const error = new Error('找不到 12 小时内可用于测试的最新视频贴文。');
-  error.code = 'NO_TEST_TARGET';
-  throw error;
+  const merged = new Map();
+  const errors = [];
+
+  for (let i = 0; i < results.length; i++) {
+    const source = i === 0 ? 'feed' : 'posts';
+    const result = results[i];
+    if (result.status === 'rejected') {
+      errors.push(`${source}: ${result.reason?.message || '读取失败'}`);
+      continue;
+    }
+    for (const post of result.value) {
+      const item = normalizeCandidate(post, source);
+      if (!item || !isRecent(item.created_time)) continue;
+      const existing = merged.get(item.id);
+      if (!existing) {
+        merged.set(item.id, item);
+      } else {
+        merged.set(item.id, {
+          ...existing,
+          ...item,
+          source: existing.source === item.source ? existing.source : 'feed+posts',
+          is_video: existing.is_video || item.is_video
+        });
+      }
+    }
+  }
+
+  const candidates = [...merged.values()]
+    .sort((a, b) => (Date.parse(b.created_time || '') || 0) - (Date.parse(a.created_time || '') || 0))
+    .slice(0, CANDIDATE_LIMIT);
+
+  if (!candidates.length) {
+    const error = new Error(errors.length
+      ? `无法读取最近贴文：${errors.join('；')}`
+      : '找不到最近 24 小时内可选择的 Facebook 贴文');
+    error.code = 'NO_CANDIDATES';
+    throw error;
+  }
+
+  return { candidates, warnings: errors };
+}
+
+function validatePostId(pageId, postId) {
+  const id = String(postId || '').trim();
+  if (!id || !id.startsWith(`${pageId}_`)) {
+    const error = new Error('Post ID 不属于当前 Facebook Page');
+    error.code = 'INVALID_POST_ID';
+    throw error;
+  }
+  return id;
 }
 
 function jsonError(res, status, message, extra = {}) {
   return res.status(status).json({ success: false, message, ...extra });
-}
-
-function requestMode(req) {
-  const raw = req.method === 'GET' ? req.query?.mode : req.body?.mode;
-  return String(raw || 'live').toLowerCase() === 'test' ? 'test' : 'live';
 }
 
 export default async function handler(req, res) {
@@ -188,55 +191,28 @@ export default async function handler(req, res) {
     return jsonError(res, 405, '❌ 不支持这个请求方式');
   }
 
-  const mode = requestMode(req);
-
   try {
-    const target = mode === 'test'
-      ? await resolveTestTarget(pageId, accessToken)
-      : await resolveLiveTarget(pageId, accessToken);
-
     if (req.method === 'GET') {
+      const result = await getCandidates(pageId, accessToken);
       return res.status(200).json({
         success: true,
-        mode,
-        post_id: target.id,
-        live_video_id: target.live_video_id || '',
-        source: target.source,
-        created_time: target.created_time || '',
-        permalink_url: target.permalink_url || '',
-        message: target.message || ''
+        candidates: result.candidates,
+        warnings: result.warnings
       });
     }
 
-    const expectedPostId = req.body?.post_id;
-    if (!expectedPostId || typeof expectedPostId !== 'string') {
-      return jsonError(res, 400, '❌ 缺少 Post ID');
-    }
-
-    if (expectedPostId !== target.id) {
-      return jsonError(res, 409, mode === 'test'
-        ? '❌ 测试目标 Post ID 已改变，请重新确认'
-        : '❌ 当前直播 Post ID 已改变，请重新确认', {
-        post_changed: true,
-        post_id: target.id,
-        source: target.source,
-        created_time: target.created_time || '',
-        mode
-      });
-    }
-
+    const postId = validatePostId(pageId, req.body?.post_id);
     const commentIds = [];
     for (let i = 0; i < COUNTDOWN_STEPS.length; i++) {
       const step = COUNTDOWN_STEPS[i];
       try {
-        const commentId = await graphPostComment(target.id, step.message, accessToken);
+        const commentId = await graphPostComment(postId, step.message, accessToken);
         commentIds.push(commentId);
       } catch (error) {
         return jsonError(res, 502, `❌ 倒数执行到第 ${i + 1} 步失败：${error.message}`, {
-          post_id: target.id,
+          post_id: postId,
           failed_step: i + 1,
           sent_count: commentIds.length,
-          mode,
           code: error.code || '',
           facebook: error.facebook || undefined
         });
@@ -248,22 +224,17 @@ export default async function handler(req, res) {
       success: true,
       triggered: 1,
       completed: true,
-      mode,
-      message: mode === 'test' ? '✅ 旧直播测试已完成' : '✅ 倒数已完成',
-      post_id: target.id,
-      live_video_id: target.live_video_id || '',
-      source: target.source,
+      message: '✅ 倒数已完成',
+      post_id: postId,
       sent_count: commentIds.length,
       last_comment_id: commentIds.at(-1) || '',
-      created_time: target.created_time || '',
-      permalink_url: target.permalink_url || ''
     });
   } catch (error) {
-    const conflictCodes = new Set(['NO_ACTIVE_LIVE', 'NO_TEST_TARGET']);
-    const status = conflictCodes.has(error.code) ? 409 : (error.code === 'FACEBOOK_TIMEOUT' ? 504 : 500);
+    const status = error.code === 'FACEBOOK_TIMEOUT' ? 504
+      : ['NO_CANDIDATES', 'INVALID_POST_ID'].includes(error.code) ? 409
+      : 500;
     return jsonError(res, status, `❌ ${error.message || '系统错误'}`, {
       code: error.code || '',
-      mode,
       facebook: error.facebook || undefined
     });
   }
