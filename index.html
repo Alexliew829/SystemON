@@ -12,127 +12,153 @@
   <style>
     * { box-sizing: border-box; }
     body {
-      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
-      padding: 24px; background: linear-gradient(180deg, #16344d 0%, #081725 100%);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #fff;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: linear-gradient(180deg, #16344d 0%, #081725 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #eef8ff;
     }
     .card {
-      width: min(94vw, 430px); padding: 30px 22px 26px; border-radius: 28px; text-align: center;
-      background: rgba(4, 23, 37, 0.88); border: 1px solid rgba(111, 202, 255, 0.35);
-      box-shadow: 0 22px 55px rgba(0,0,0,0.35);
+      width: min(92vw, 430px);
+      text-align: center;
+      padding: 32px 22px 26px;
+      border-radius: 28px;
+      background: rgba(8, 24, 40, 0.9);
+      border: 1px solid rgba(124, 211, 255, 0.25);
+      box-shadow: 0 18px 55px rgba(0,0,0,0.36);
     }
-    .icon { width: 122px; height: 122px; border-radius: 26px; object-fit: cover; }
-    h1 { margin: 22px 0 8px; font-size: 34px; color: #ff4048; }
-    .note { margin: 0 0 24px; color: #b9d8eb; font-size: 15px; line-height: 1.65; }
-    button { font-family: inherit; }
-    .btn, .end-btn, .select-btn {
-      width: 100%; border: 0; border-radius: 18px; font-weight: 800; cursor: pointer;
+    .icon {
+      width: 118px;
+      height: 118px;
+      border-radius: 28px;
+      object-fit: cover;
+      box-shadow: 0 0 24px rgba(64, 224, 255, 0.2);
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      color: #ff4c57;
+    }
+    .note {
+      margin: 0 0 24px;
+      color: #a8c4d8;
+      font-size: 15px;
+      line-height: 1.55;
     }
     .btn {
-      padding: 22px 14px; font-size: 28px; color: #fff;
-      background: linear-gradient(135deg, #ff3f4d 0%, #ff9a22 100%);
-      box-shadow: 0 10px 24px rgba(255, 82, 48, 0.24);
+      width: 100%;
+      border: 0;
+      border-radius: 20px;
+      padding: 19px 16px;
+      font-size: 28px;
+      font-weight: 800;
+      color: white;
+      background: linear-gradient(135deg, #ff3e4d 0%, #ff9f22 100%);
+      box-shadow: 0 12px 30px rgba(255, 93, 62, 0.28);
+      cursor: pointer;
     }
-    .btn:disabled { opacity: 0.52; cursor: not-allowed; }
+    .btn:disabled { opacity: 0.62; cursor: not-allowed; }
     .end-btn {
-      margin-top: 13px; padding: 14px; font-size: 17px; color: #ffcf9d;
-      background: rgba(255, 123, 52, 0.10); border: 1px solid rgba(255, 151, 76, 0.32);
+      width: 100%;
+      margin-top: 12px;
+      border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 16px;
+      padding: 13px 14px;
+      font-size: 16px;
+      font-weight: 800;
+      color: #dce9f2;
+      background: rgba(255,255,255,0.07);
+      cursor: pointer;
     }
-    .end-btn:disabled { opacity: 0.34; cursor: not-allowed; }
+    .end-btn:disabled { opacity: 0.42; cursor: not-allowed; }
     .status {
-      margin-top: 18px; min-height: 64px; display: flex; align-items: center; justify-content: center;
-      padding: 14px; border-radius: 16px; font-size: 15px; font-weight: 700; line-height: 1.45;
-      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
-      color: #bdd5e5; white-space: pre-line;
+      margin-top: 18px;
+      min-height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      border-radius: 16px;
+      font-size: 16px;
+      font-weight: 700;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #bdd5e5;
+      white-space: pre-line;
     }
-    .status.loading { color: #d9f6ff; border-color: rgba(79,230,255,0.28); }
-    .status.ok { color: #caffdf; border-color: rgba(74,224,140,0.38); }
-    .status.err { color: #ffd1d1; border-color: rgba(255,105,105,0.45); }
-    .status.locked { color: #ffe3a6; border-color: rgba(255,187,73,0.42); }
+    .status.loading { color: #d9f6ff; border-color: rgba(79, 230, 255, 0.28); }
+    .status.ok { color: #caffdf; border-color: rgba(74, 224, 140, 0.38); }
+    .status.err { color: #ffd1d1; border-color: rgba(255, 105, 105, 0.45); }
+    .status.locked { color: #ffe3a6; border-color: rgba(255, 187, 73, 0.42); }
     .footer { margin-top: 16px; font-size: 12px; color: #6f96ad; }
 
     .overlay {
-      position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
-      padding: 18px; background: rgba(0,0,0,0.72); z-index: 20;
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+      background: rgba(0,0,0,0.68);
+      z-index: 10;
     }
     .overlay.show { display: flex; }
-    .panel {
-      width: min(96vw, 520px); max-height: 88vh; overflow: auto; padding: 22px;
-      border-radius: 22px; background: #10283c; border: 1px solid rgba(124,211,255,0.32);
+    .confirm-box {
+      width: min(92vw, 390px);
+      padding: 24px 20px 20px;
+      border-radius: 22px;
+      background: #10283c;
+      border: 1px solid rgba(124, 211, 255, 0.32);
       box-shadow: 0 18px 50px rgba(0,0,0,0.5);
+      text-align: center;
     }
-    .panel h2 { margin: 0 0 8px; text-align: center; font-size: 23px; }
-    .panel .sub { margin: 0 0 16px; color: #bcd4e4; text-align: center; line-height: 1.5; font-size: 14px; }
-    .candidate-list { display: grid; gap: 10px; }
-    .candidate {
-      text-align: left; padding: 13px; border-radius: 15px; background: rgba(255,255,255,0.055);
-      border: 1px solid rgba(255,255,255,0.10);
-    }
-    .candidate.video { border-color: rgba(77,224,150,0.34); }
-    .candidate-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .badge { font-size: 12px; padding: 4px 8px; border-radius: 999px; background: rgba(74,224,140,0.16); color: #bff5d5; }
-    .badge.post { background: rgba(255,255,255,0.10); color: #d7e5ee; }
-    .time { font-size: 12px; color: #8fb1c7; }
-    .message { margin: 8px 0 5px; color: #eef8ff; font-size: 14px; line-height: 1.4; word-break: break-word; }
-    .post-id { font-size: 11px; color: #7297ae; word-break: break-all; }
-    .candidate-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; }
-    .select-btn { padding: 11px 10px; font-size: 15px; color: #fff; background: #1b78b3; }
-    .link-btn {
-      display: inline-flex; align-items: center; justify-content: center; min-width: 58px; padding: 10px;
-      border-radius: 12px; text-decoration: none; color: #bfe9ff; background: rgba(68,171,230,0.12);
-      border: 1px solid rgba(89,193,255,0.25); font-size: 13px;
-    }
-    .panel-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
-    .panel-actions button { border: 0; border-radius: 14px; padding: 13px 10px; font-size: 16px; font-weight: 800; cursor: pointer; }
-    .cancel { background: #365066; color: #edf7ff; }
-    .refresh { background: #176d98; color: #fff; }
-    .confirm { background: linear-gradient(135deg, #ff3e4d 0%, #ff9f22 100%); color: white; }
-    .confirm-box { width: min(92vw, 390px); padding: 24px 20px 20px; border-radius: 22px; background: #10283c; border: 1px solid rgba(124,211,255,0.32); text-align: center; }
     .confirm-box h2 { margin: 0 0 10px; font-size: 24px; }
     .confirm-box p { margin: 0 0 18px; color: #bcd4e4; line-height: 1.55; }
     .confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .confirm-actions button { border: 0; border-radius: 14px; padding: 14px 10px; font-size: 17px; font-weight: 800; cursor: pointer; }
+    .confirm-actions button {
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 10px;
+      font-size: 17px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .cancel { background: #365066; color: #edf7ff; }
+    .confirm { background: linear-gradient(135deg, #ff3e4d 0%, #ff9f22 100%); color: white; }
   </style>
 </head>
 <body>
   <main class="card">
     <img class="icon" src="/icon.png" alt="启动倒数" />
     <h1>启动倒数</h1>
-    <p class="note">V6.7 无 Make 版：不使用受限 Live Video API。首次先从最近贴文中确认本场直播，确认后整场锁定同一个 Post ID。</p>
+    <p class="note">优先识别当前直播；新直播第一次需要确认，同一直播后续可直接再次启动。</p>
 
     <button id="startBtn" class="btn">▶ 启动倒数</button>
     <button id="endBtn" class="end-btn" disabled>🔒 结束本场直播</button>
     <div id="status" class="status">准备就绪</div>
-    <div class="footer">Lover Legend Gardening · V6.7</div>
+    <div class="footer">Lover Legend Gardening · V6.4</div>
   </main>
 
-  <div id="candidateOverlay" class="overlay" role="dialog" aria-modal="true">
-    <div class="panel">
-      <h2>选择本场直播</h2>
-      <p class="sub">请选择当前这场 Facebook 直播。确认一次后，本场后续倒数都会固定发送到同一个 Post ID。</p>
-      <div id="candidateList" class="candidate-list"></div>
-      <div class="panel-actions">
-        <button id="candidateCancelBtn" class="cancel">取消</button>
-        <button id="candidateRefreshBtn" class="refresh">重新读取</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="confirmOverlay" class="overlay" role="dialog" aria-modal="true">
+  <div id="startOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="startConfirmTitle">
     <div class="confirm-box">
-      <h2>确认本场直播？</h2>
-      <p id="confirmText">确认后，本场所有倒数都会固定发送到这个 Post。</p>
+      <h2 id="startConfirmTitle">确认第一次启动？</h2>
+      <p>这是新的 Facebook Post。确认后，本 Post 后续再次启动将不再询问。</p>
       <div class="confirm-actions">
-        <button id="confirmCancelBtn" class="cancel">返回</button>
-        <button id="confirmBtn" class="confirm">确认锁定</button>
+        <button id="startCancelBtn" class="cancel">取消</button>
+        <button id="startConfirmBtn" class="confirm">确认启动</button>
       </div>
     </div>
   </div>
 
-  <div id="endOverlay" class="overlay" role="dialog" aria-modal="true">
+  <div id="endOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="endConfirmTitle">
     <div class="confirm-box">
-      <h2>结束本场直播？</h2>
-      <p>结束后会解除当前 Post ID。下一场直播再次按「启动倒数」时，需要重新选择并确认。</p>
+      <h2 id="endConfirmTitle">结束本场直播？</h2>
+      <p>锁定当前 Post 后，再误触「启动倒数」也不会执行；检测到新的 Post ID 会自动解锁。</p>
       <div class="confirm-actions">
         <button id="endCancelBtn" class="cancel">取消</button>
         <button id="endConfirmBtn" class="confirm">确认结束</button>
@@ -141,198 +167,175 @@
   </div>
 
   <script>
-    const LOCKED_KEY = 'systemon_locked_post_v67';
+    const CONFIRMED_KEY = 'systemon_confirmed_post_id_v64';
+    const ENDED_KEY = 'systemon_ended_post_id_v64';
 
     const startBtn = document.getElementById('startBtn');
     const endBtn = document.getElementById('endBtn');
     const status = document.getElementById('status');
-    const candidateOverlay = document.getElementById('candidateOverlay');
-    const candidateList = document.getElementById('candidateList');
-    const candidateCancelBtn = document.getElementById('candidateCancelBtn');
-    const candidateRefreshBtn = document.getElementById('candidateRefreshBtn');
-    const confirmOverlay = document.getElementById('confirmOverlay');
-    const confirmText = document.getElementById('confirmText');
-    const confirmCancelBtn = document.getElementById('confirmCancelBtn');
-    const confirmBtn = document.getElementById('confirmBtn');
+    const startOverlay = document.getElementById('startOverlay');
     const endOverlay = document.getElementById('endOverlay');
+    const startCancelBtn = document.getElementById('startCancelBtn');
+    const startConfirmBtn = document.getElementById('startConfirmBtn');
     const endCancelBtn = document.getElementById('endCancelBtn');
     const endConfirmBtn = document.getElementById('endConfirmBtn');
 
-    let pendingCandidate = null;
+    let pendingPostId = '';
 
     function showStatus(type, text) {
       status.className = 'status' + (type ? ' ' + type : '');
       status.textContent = text;
     }
 
-    function getLocked() {
-      try { return JSON.parse(localStorage.getItem(LOCKED_KEY) || 'null'); }
-      catch { return null; }
+    function setBusy(isBusy, text) {
+      startBtn.disabled = isBusy;
+      if (text) startBtn.textContent = text;
     }
 
-    function saveLocked(candidate) {
-      localStorage.setItem(LOCKED_KEY, JSON.stringify({
-        post_id: candidate.id,
-        created_time: candidate.created_time || '',
-        permalink_url: candidate.permalink_url || '',
-        message: candidate.message || '',
-        locked_at: new Date().toISOString()
-      }));
+    function syncEndButton() {
+      const confirmed = localStorage.getItem(CONFIRMED_KEY) || '';
+      const ended = localStorage.getItem(ENDED_KEY) || '';
+      endBtn.disabled = !confirmed || confirmed === ended;
     }
 
-    function clearLocked() {
-      localStorage.removeItem(LOCKED_KEY);
-    }
-
-    function shortId(postId) {
-      return String(postId || '').split('_').pop();
-    }
-
-    function syncLockedUI() {
-      const locked = getLocked();
-      endBtn.disabled = !locked?.post_id;
-      if (locked?.post_id) {
-        showStatus('locked', `🔒 已锁定本场直播\nPost ID: ${shortId(locked.post_id)}`);
+    async function getLatestPost() {
+      const response = await fetch('/api/trigger', { method: 'GET', cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.message || '无法确认当前直播');
       }
+      return data;
     }
 
-    function formatTime(value) {
-      if (!value) return '时间未知';
-      const d = new Date(value);
-      if (Number.isNaN(d.getTime())) return value;
-      return d.toLocaleString('zh-MY', { hour12: false });
-    }
-
-    function escapeHtml(text) {
-      return String(text || '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
-    }
-
-    function renderCandidates(items) {
-      candidateList.innerHTML = '';
-      if (!items.length) {
-        candidateList.innerHTML = '<div class="candidate">没有找到最近候选贴文。</div>';
-        return;
-      }
-      items.forEach((item, index) => {
-        const row = document.createElement('div');
-        row.className = 'candidate' + (item.is_video ? ' video' : '');
-        const msg = (item.message || '').trim() || '(没有贴文文字)';
-        row.innerHTML = `
-          <div class="candidate-top">
-            <span class="badge ${item.is_video ? '' : 'post'}">${item.is_video ? '🎥 视频/直播候选' : '贴文'}</span>
-            <span class="time">${escapeHtml(formatTime(item.created_time))}</span>
-          </div>
-          <div class="message">${escapeHtml(msg.slice(0, 120))}</div>
-          <div class="post-id">${escapeHtml(item.id)}</div>
-          <div class="candidate-actions">
-            <button class="select-btn" data-index="${index}">选择这个</button>
-            ${item.permalink_url ? `<a class="link-btn" href="${escapeHtml(item.permalink_url)}" target="_blank" rel="noopener">打开</a>` : '<span></span>'}
-          </div>`;
-        candidateList.appendChild(row);
+    async function triggerPost(postId) {
+      const response = await fetch('/api/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ post_id: postId })
       });
-
-      candidateList.querySelectorAll('.select-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const item = items[Number(btn.dataset.index)];
-          if (!item) return;
-          pendingCandidate = item;
-          confirmText.textContent = `确认锁定 Post ${shortId(item.id)}？确认后，本场所有倒数都会固定发送到这里。`;
-          confirmOverlay.classList.add('show');
-        });
-      });
-    }
-
-    async function loadCandidates() {
-      showStatus('loading', '正在读取最近 Facebook 贴文...');
-      startBtn.disabled = true;
-      candidateRefreshBtn.disabled = true;
-      try {
-        const response = await fetch('/api/trigger', { method: 'GET', cache: 'no-store' });
-        const data = await response.json();
-        if (!response.ok || data.success !== true) throw new Error(data.message || '读取候选贴文失败');
-        renderCandidates(Array.isArray(data.candidates) ? data.candidates : []);
-        candidateOverlay.classList.add('show');
-        showStatus('', '请选择当前这场直播');
-      } catch (error) {
-        showStatus('err', '❌ ' + (error.message || '读取候选贴文失败'));
-      } finally {
-        startBtn.disabled = false;
-        candidateRefreshBtn.disabled = false;
+      const data = await response.json();
+      if (!response.ok || data.success !== true) {
+        if (data.post_changed) {
+          localStorage.removeItem(CONFIRMED_KEY);
+        }
+        throw new Error(data.message || '启动失败');
       }
+      return data;
     }
 
-    async function runCountdown(postId) {
-      startBtn.disabled = true;
-      endBtn.disabled = true;
-      startBtn.textContent = '⏳ 倒数执行中...';
-      showStatus('loading', '正在执行完整倒数，请保持此页面开启...');
+    async function doTrigger(postId, rememberConfirmation) {
+      startOverlay.classList.remove('show');
+      setBusy(true, '⏳ 启动中...');
+      showStatus('loading', '正在启动倒数...');
+
       try {
-        const response = await fetch('/api/trigger', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({ post_id: postId })
-        });
-        const data = await response.json();
-        if (!response.ok || data.success !== true) throw new Error(data.message || '倒数执行失败');
-        showStatus('ok', `✅ 倒数已完成\nPost ID: ${shortId(postId)}`);
+        await triggerPost(postId);
+        if (rememberConfirmation) {
+          localStorage.setItem(CONFIRMED_KEY, postId);
+        }
+        showStatus('ok', '✅ 已启动倒数');
+        startBtn.textContent = '▶ 再次启动';
+        syncEndButton();
       } catch (error) {
-        showStatus('err', '❌ ' + (error.message || '倒数执行失败'));
-      } finally {
-        startBtn.disabled = false;
+        showStatus('err', '❌ ' + (error.message || '启动失败，请重试'));
         startBtn.textContent = '▶ 启动倒数';
-        endBtn.disabled = !getLocked()?.post_id;
+      } finally {
+        startBtn.disabled = false;
+        pendingPostId = '';
       }
     }
 
     startBtn.addEventListener('click', async () => {
-      const locked = getLocked();
-      if (locked?.post_id) {
-        await runCountdown(locked.post_id);
+      setBusy(true, '⏳ 检查中...');
+      showStatus('loading', '正在确认当前 Facebook 直播...');
+
+      try {
+        const latest = await getLatestPost();
+        const confirmedPostId = localStorage.getItem(CONFIRMED_KEY) || '';
+        const endedPostId = localStorage.getItem(ENDED_KEY) || '';
+
+        // New Post ID automatically clears the previous ended/confirmed state.
+        if (endedPostId && endedPostId !== latest.post_id) {
+          localStorage.removeItem(ENDED_KEY);
+          localStorage.removeItem(CONFIRMED_KEY);
+        }
+
+        const currentEndedPostId = localStorage.getItem(ENDED_KEY) || '';
+        if (currentEndedPostId === latest.post_id) {
+          showStatus('locked', '🔒 本场直播已结束，当前 Post 已锁定');
+          startBtn.textContent = '▶ 启动倒数';
+          startBtn.disabled = false;
+          syncEndButton();
+          return;
+        }
+
+        if (confirmedPostId === latest.post_id) {
+          await doTrigger(latest.post_id, false);
+          return;
+        }
+
+        // New Post ID: clear old confirmation and ask once.
+        localStorage.removeItem(CONFIRMED_KEY);
+        pendingPostId = latest.post_id;
+        showStatus('', '等待确认');
+        startBtn.textContent = '▶ 启动倒数';
+        startBtn.disabled = false;
+        startOverlay.classList.add('show');
+      } catch (error) {
+        showStatus('err', '❌ ' + (error.message || '检查失败，请重试'));
+        startBtn.textContent = '▶ 启动倒数';
+        startBtn.disabled = false;
+      }
+    });
+
+    startCancelBtn.addEventListener('click', () => {
+      startOverlay.classList.remove('show');
+      pendingPostId = '';
+      showStatus('', '已取消');
+    });
+
+    startConfirmBtn.addEventListener('click', async () => {
+      if (!pendingPostId) {
+        startOverlay.classList.remove('show');
+        showStatus('err', '❌ Post ID 已失效，请重新点击启动');
         return;
       }
-      await loadCandidates();
-    });
-
-    candidateRefreshBtn.addEventListener('click', loadCandidates);
-    candidateCancelBtn.addEventListener('click', () => {
-      candidateOverlay.classList.remove('show');
-      showStatus('', '已取消选择');
-    });
-
-    confirmCancelBtn.addEventListener('click', () => {
-      confirmOverlay.classList.remove('show');
-      pendingCandidate = null;
-    });
-
-    confirmBtn.addEventListener('click', async () => {
-      if (!pendingCandidate?.id) {
-        confirmOverlay.classList.remove('show');
-        showStatus('err', '❌ 选择已失效，请重新选择');
-        return;
+      startConfirmBtn.disabled = true;
+      try {
+        await doTrigger(pendingPostId, true);
+      } finally {
+        startConfirmBtn.disabled = false;
       }
-      const selected = pendingCandidate;
-      pendingCandidate = null;
-      saveLocked(selected);
-      confirmOverlay.classList.remove('show');
-      candidateOverlay.classList.remove('show');
-      syncLockedUI();
-      await runCountdown(selected.id);
     });
 
     endBtn.addEventListener('click', () => {
-      if (!getLocked()?.post_id) return;
+      const confirmedPostId = localStorage.getItem(CONFIRMED_KEY) || '';
+      if (!confirmedPostId) {
+        showStatus('err', '❌ 目前没有已确认的 Post');
+        return;
+      }
       endOverlay.classList.add('show');
     });
-    endCancelBtn.addEventListener('click', () => endOverlay.classList.remove('show'));
-    endConfirmBtn.addEventListener('click', () => {
+
+    endCancelBtn.addEventListener('click', () => {
       endOverlay.classList.remove('show');
-      clearLocked();
-      endBtn.disabled = true;
-      showStatus('', '✅ 已结束本场直播。下一场需要重新选择。');
     });
 
-    syncLockedUI();
+    endConfirmBtn.addEventListener('click', () => {
+      const confirmedPostId = localStorage.getItem(CONFIRMED_KEY) || '';
+      endOverlay.classList.remove('show');
+      if (!confirmedPostId) {
+        showStatus('err', '❌ 目前没有已确认的 Post');
+        return;
+      }
+      localStorage.setItem(ENDED_KEY, confirmedPostId);
+      showStatus('locked', '🔒 本场直播已结束，当前 Post 已锁定');
+      startBtn.textContent = '▶ 启动倒数';
+      syncEndButton();
+    });
+
+    syncEndButton();
   </script>
 </body>
 </html>
