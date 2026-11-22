@@ -136,7 +136,7 @@
   <main class="card">
     <img class="icon" src="/icon.png" alt="启动倒数" />
     <h1>启动倒数</h1>
-    <p class="note">优先识别当前直播；新直播第一次需要确认，同一直播后续可直接再次启动。</p>
+    <p class="note">V6.5 无 Make 版：优先识别当前直播；新直播第一次需要确认，同一直播后续可直接再次启动。</p>
 
     <button id="startBtn" class="btn">▶ 启动倒数</button>
     <button id="endBtn" class="end-btn" disabled>🔒 结束本场直播</button>
@@ -226,15 +226,15 @@
 
     async function doTrigger(postId, rememberConfirmation) {
       startOverlay.classList.remove('show');
-      setBusy(true, '⏳ 启动中...');
-      showStatus('loading', '正在启动倒数...');
+      setBusy(true, '⏳ 倒数执行中...');
+      showStatus('loading', '正在执行完整倒数，请保持此页面开启...');
 
       try {
         await triggerPost(postId);
         if (rememberConfirmation) {
           localStorage.setItem(CONFIRMED_KEY, postId);
         }
-        showStatus('ok', '✅ 已启动倒数');
+        showStatus('ok', '✅ 倒数已完成');
         startBtn.textContent = '▶ 再次启动';
         syncEndButton();
       } catch (error) {

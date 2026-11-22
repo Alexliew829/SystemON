@@ -1,13 +1,31 @@
 const GRAPH_VERSION = 'v23.0';
 const FALLBACK_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
-async function graphGet(path, params, accessToken) {
-  const query = new URLSearchParams({
-    ...params,
-    access_token: accessToken
-  });
-  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${path}?${query.toString()}`;
+const COUNTDOWN_STEPS = [
+  { message: '🪴🪴🪴Syetem On 晚上好🪴🪴🪴\n 🌿🌿🌿欢迎来到情人传奇🌿🌿🌿\n🌟🌟🌟感谢参与竞标活动 🌟🌟🌟', waitAfterMs: 2000 },
+  { message: '倒数-10\nCount Down-10', waitAfterMs: 2000 },
+  { message: '倒数-9\nCount Down-9', waitAfterMs: 2000 },
+  { message: '倒数-8\nCount Down-8', waitAfterMs: 2000 },
+  { message: '倒数-7\nCount Down-7', waitAfterMs: 2000 },
+  { message: '倒数-6\nCount Down-6', waitAfterMs: 2000 },
+  { message: '倒数-5\nCount Down-5', waitAfterMs: 2000 },
+  { message: '倒数-4\nCount Down-4', waitAfterMs: 2000 },
+  { message: '倒数-3\nCount Down-3', waitAfterMs: 2000 },
+  { message: '喜欢的大步一点 , 不然美树给人抢去', waitAfterMs: 3000 },
+  { message: 'Take a big step，someone else might grab it!', waitAfterMs: 3000 },
+  { message: '倒数-2\nCount Down-2', waitAfterMs: 5000 },
+  { message: '倒数-1\nCount Down-1', waitAfterMs: 5000 },
+  { message: '还有谁要出价？喜欢就别错过！  \nAny more bids? If you like this plant, don’t miss out!', waitAfterMs: 10000 },
+  { message: '0000000000, 关 >>>>>Close\n0000000000 上得标，0下无效\n0 above wins , 0 below invalid', waitAfterMs: 0 }
+];
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function graphGet(path, params, accessToken) {
+  const query = new URLSearchParams({ ...params, access_token: accessToken });
+  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${path}?${query.toString()}`;
   const response = await fetch(url, { cache: 'no-store' });
   const data = await response.json().catch(() => ({}));
 
@@ -17,8 +35,24 @@ async function graphGet(path, params, accessToken) {
     error.facebook = data?.error || null;
     throw error;
   }
-
   return data;
+}
+
+async function graphPostComment(postId, message, accessToken) {
+  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(postId)}/comments`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ message, access_token: accessToken })
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || data?.error || !data?.id) {
+    const error = new Error(data?.error?.message || `Facebook comment API ${response.status}`);
+    error.facebook = data?.error || null;
+    throw error;
+  }
+  return data.id;
 }
 
 function normalizePostId(pageId, objectId) {
@@ -33,15 +67,8 @@ function isLiveNow(item) {
 }
 
 async function graphGetActiveLiveVideo(pageId, accessToken) {
-  // Preferred path: read the Page object and expand its live_videos edge.
-  // Meta documents LIVE_NOW as the status for a currently live broadcast.
   const fields = 'live_videos.limit(10){id,status,permalink_url,title,creation_time}';
-  const data = await graphGet(
-    encodeURIComponent(pageId),
-    { fields },
-    accessToken
-  );
-
+  const data = await graphGet(encodeURIComponent(pageId), { fields }, accessToken);
   const items = Array.isArray(data?.live_videos?.data) ? data.live_videos.data : [];
   const live = items.find(isLiveNow);
   if (!live?.id) return null;
@@ -61,19 +88,12 @@ function attachmentLooksLikeVideo(attachment) {
   const type = String(attachment?.type || '').toLowerCase();
   const url = String(attachment?.url || '').toLowerCase();
   const targetUrl = String(attachment?.target?.url || '').toLowerCase();
-
-  return (
-    mediaType.includes('video') ||
-    type.includes('video') ||
-    url.includes('/videos/') ||
-    targetUrl.includes('/videos/')
-  );
+  return mediaType.includes('video') || type.includes('video') || url.includes('/videos/') || targetUrl.includes('/videos/');
 }
 
 function postLooksLikeVideo(post) {
   const permalink = String(post?.permalink_url || '').toLowerCase();
   if (permalink.includes('/videos/')) return true;
-
   const attachments = Array.isArray(post?.attachments?.data) ? post.attachments.data : [];
   return attachments.some(attachmentLooksLikeVideo);
 }
@@ -87,20 +107,9 @@ function isRecent(createdTime) {
 
 async function graphGetLatestVideoPostFallback(pageId, accessToken) {
   const fields = 'id,created_time,message,permalink_url,attachments{media_type,type,target,url}';
-  const data = await graphGet(
-    `${encodeURIComponent(pageId)}/posts`,
-    { limit: '1', fields },
-    accessToken
-  );
-
+  const data = await graphGet(`${encodeURIComponent(pageId)}/posts`, { limit: '1', fields }, accessToken);
   const post = Array.isArray(data?.data) ? data.data[0] : null;
-  if (!post?.id) return null;
-
-  // Important safety rule: V6.3 trusted the newest Page post unconditionally.
-  // V6.4 only accepts the fallback when that newest post is itself a recent video post.
-  if (!postLooksLikeVideo(post) || !isRecent(post.created_time)) {
-    return null;
-  }
+  if (!post?.id || !postLooksLikeVideo(post) || !isRecent(post.created_time)) return null;
 
   return {
     id: String(post.id),
@@ -114,27 +123,17 @@ async function graphGetLatestVideoPostFallback(pageId, accessToken) {
 
 async function graphResolveCountdownTarget(pageId, accessToken) {
   let liveLookupError = null;
-
   try {
     const live = await graphGetActiveLiveVideo(pageId, accessToken);
     if (live) return live;
   } catch (error) {
-    // Some Page tokens/apps cannot read live_videos. Keep a compatibility fallback,
-    // but never fall back to an arbitrary normal Page post.
     liveLookupError = error;
   }
 
   const fallback = await graphGetLatestVideoPostFallback(pageId, accessToken);
-  if (fallback) {
-    return {
-      ...fallback,
-      warning: liveLookupError ? 'LIVE_LOOKUP_UNAVAILABLE' : ''
-    };
-  }
+  if (fallback) return { ...fallback, warning: liveLookupError ? 'LIVE_LOOKUP_UNAVAILABLE' : '' };
 
-  const error = new Error(
-    '无法确认当前直播 Post ID。为避免倒数留言到错误贴文，本次未启动。请确认直播已经开始后再试。'
-  );
+  const error = new Error('无法确认当前直播 Post ID。为避免倒数留言到错误贴文，本次未启动。请确认直播已经开始后再试。');
   error.code = 'NO_LIVE_TARGET';
   if (liveLookupError?.facebook) error.facebook = liveLookupError.facebook;
   throw error;
@@ -145,22 +144,16 @@ function jsonError(res, status, message, extra = {}) {
 }
 
 export default async function handler(req, res) {
-  const makeWebhookUrl = process.env.WEBHOOK_URL;
   const pageId = process.env.PAGE_ID;
   const accessToken = process.env.FB_ACCESS_TOKEN;
 
-  if (!makeWebhookUrl || !pageId || !accessToken) {
-    return jsonError(
-      res,
-      500,
-      '❌ 系统环境变量未完整设置（WEBHOOK_URL / PAGE_ID / FB_ACCESS_TOKEN）'
-    );
+  if (!pageId || !accessToken) {
+    return jsonError(res, 500, '❌ 系统环境变量未完整设置（PAGE_ID / FB_ACCESS_TOKEN）');
   }
 
   try {
     const target = await graphResolveCountdownTarget(pageId, accessToken);
 
-    // Preview only: every button press resolves the current live/video target first.
     if (req.method === 'GET') {
       return res.status(200).json({
         success: true,
@@ -185,7 +178,6 @@ export default async function handler(req, res) {
       return jsonError(res, 400, '❌ 缺少 Post ID');
     }
 
-    // Race protection: resolve again immediately before triggering Make.
     if (expectedPostId !== target.id) {
       return jsonError(res, 409, '❌ 当前直播 Post ID 已改变，请重新确认', {
         post_changed: true,
@@ -195,33 +187,34 @@ export default async function handler(req, res) {
       });
     }
 
-    const makeResponse = await fetch(makeWebhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        post_id: target.id,
-        trigger: 'manual_countdown',
-        source: target.source,
-        live_video_id: target.live_video_id || '',
-        time: new Date().toISOString()
-      })
-    });
-
-    const makeText = await makeResponse.text().catch(() => '');
-    if (!makeResponse.ok) {
-      return jsonError(res, 502, '❌ Make Webhook 接收失败', {
-        detail: makeText.slice(0, 300)
-      });
+    const commentIds = [];
+    for (let i = 0; i < COUNTDOWN_STEPS.length; i++) {
+      const step = COUNTDOWN_STEPS[i];
+      try {
+        const commentId = await graphPostComment(target.id, step.message, accessToken);
+        commentIds.push(commentId);
+      } catch (error) {
+        return jsonError(res, 502, `❌ 倒数执行到第 ${i + 1} 步失败：${error.message}`, {
+          post_id: target.id,
+          failed_step: i + 1,
+          sent_count: commentIds.length,
+          facebook: error.facebook || undefined
+        });
+      }
+      if (step.waitAfterMs > 0) await sleep(step.waitAfterMs);
     }
 
     return res.status(200).json({
       success: true,
       triggered: 1,
-      message: '✅ 已启动倒数',
+      completed: true,
+      message: '✅ 倒数已完成',
       post_id: target.id,
       live_video_id: target.live_video_id || '',
       source: target.source,
       warning: target.warning || '',
+      sent_count: commentIds.length,
+      last_comment_id: commentIds.at(-1) || '',
       created_time: target.created_time || '',
       permalink_url: target.permalink_url || ''
     });
