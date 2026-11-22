@@ -1,5 +1,6 @@
 const GRAPH_VERSION = 'v23.0';
 const FALLBACK_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+const FACEBOOK_TIMEOUT_MS = 10 * 1000;
 
 const COUNTDOWN_STEPS = [
   { message: '🪴🪴🪴Syetem On 晚上好🪴🪴🪴\n 🌿🌿🌿欢迎来到情人传奇🌿🌿🌿\n🌟🌟🌟感谢参与竞标活动 🌟🌟🌟', waitAfterMs: 2000 },
@@ -23,10 +24,27 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = FACEBOOK_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error(`Facebook API 超时（>${Math.round(timeoutMs / 1000)}秒）`);
+      timeoutError.code = 'FACEBOOK_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function graphGet(path, params, accessToken) {
   const query = new URLSearchParams({ ...params, access_token: accessToken });
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${path}?${query.toString()}`;
-  const response = await fetch(url, { cache: 'no-store' });
+  const response = await fetchWithTimeout(url, { cache: 'no-store' });
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok || data?.error) {
@@ -40,7 +58,7 @@ async function graphGet(path, params, accessToken) {
 
 async function graphPostComment(postId, message, accessToken) {
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(postId)}/comments`;
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ message, access_token: accessToken })
@@ -105,7 +123,7 @@ function isRecent(createdTime) {
   return age >= -5 * 60 * 1000 && age <= FALLBACK_MAX_AGE_MS;
 }
 
-async function graphGetLatestVideoPostFallback(pageId, accessToken) {
+async function graphGetLatestVideoPostForTest(pageId, accessToken) {
   const fields = 'id,created_time,message,permalink_url,attachments{media_type,type,target,url}';
   const data = await graphGet(`${encodeURIComponent(pageId)}/posts`, { limit: '1', fields }, accessToken);
   const post = Array.isArray(data?.data) ? data.data[0] : null;
@@ -117,30 +135,44 @@ async function graphGetLatestVideoPostFallback(pageId, accessToken) {
     created_time: post.created_time || '',
     permalink_url: post.permalink_url || '',
     message: post.message || '',
-    source: 'latest_video_post_fallback'
+    source: 'test_latest_video_post'
   };
 }
 
-async function graphResolveCountdownTarget(pageId, accessToken) {
-  let liveLookupError = null;
+async function resolveLiveTarget(pageId, accessToken) {
+  let live;
   try {
-    const live = await graphGetActiveLiveVideo(pageId, accessToken);
-    if (live) return live;
+    live = await graphGetActiveLiveVideo(pageId, accessToken);
   } catch (error) {
-    liveLookupError = error;
+    const wrapped = new Error(`无法读取当前直播状态：${error.message}`);
+    wrapped.code = error.code || 'LIVE_LOOKUP_FAILED';
+    wrapped.facebook = error.facebook || null;
+    throw wrapped;
   }
 
-  const fallback = await graphGetLatestVideoPostFallback(pageId, accessToken);
-  if (fallback) return { ...fallback, warning: liveLookupError ? 'LIVE_LOOKUP_UNAVAILABLE' : '' };
+  if (live) return live;
 
-  const error = new Error('无法确认当前直播 Post ID。为避免倒数留言到错误贴文，本次未启动。请确认直播已经开始后再试。');
-  error.code = 'NO_LIVE_TARGET';
-  if (liveLookupError?.facebook) error.facebook = liveLookupError.facebook;
+  const error = new Error('无法确认当前正在直播。为避免倒数发送到旧直播，本次已停止。请确认 Facebook 已正式进入直播状态后再试。');
+  error.code = 'NO_ACTIVE_LIVE';
+  throw error;
+}
+
+async function resolveTestTarget(pageId, accessToken) {
+  const target = await graphGetLatestVideoPostForTest(pageId, accessToken);
+  if (target) return target;
+
+  const error = new Error('找不到 12 小时内可用于测试的最新视频贴文。');
+  error.code = 'NO_TEST_TARGET';
   throw error;
 }
 
 function jsonError(res, status, message, extra = {}) {
   return res.status(status).json({ success: false, message, ...extra });
+}
+
+function requestMode(req) {
+  const raw = req.method === 'GET' ? req.query?.mode : req.body?.mode;
+  return String(raw || 'live').toLowerCase() === 'test' ? 'test' : 'live';
 }
 
 export default async function handler(req, res) {
@@ -151,26 +183,29 @@ export default async function handler(req, res) {
     return jsonError(res, 500, '❌ 系统环境变量未完整设置（PAGE_ID / FB_ACCESS_TOKEN）');
   }
 
+  if (req.method !== 'GET' && req.method !== 'POST') {
+    res.setHeader('Allow', 'GET, POST');
+    return jsonError(res, 405, '❌ 不支持这个请求方式');
+  }
+
+  const mode = requestMode(req);
+
   try {
-    const target = await graphResolveCountdownTarget(pageId, accessToken);
+    const target = mode === 'test'
+      ? await resolveTestTarget(pageId, accessToken)
+      : await resolveLiveTarget(pageId, accessToken);
 
     if (req.method === 'GET') {
       return res.status(200).json({
         success: true,
-        mode: 'preview',
+        mode,
         post_id: target.id,
         live_video_id: target.live_video_id || '',
         source: target.source,
-        warning: target.warning || '',
         created_time: target.created_time || '',
         permalink_url: target.permalink_url || '',
         message: target.message || ''
       });
-    }
-
-    if (req.method !== 'POST') {
-      res.setHeader('Allow', 'GET, POST');
-      return jsonError(res, 405, '❌ 不支持这个请求方式');
     }
 
     const expectedPostId = req.body?.post_id;
@@ -179,11 +214,14 @@ export default async function handler(req, res) {
     }
 
     if (expectedPostId !== target.id) {
-      return jsonError(res, 409, '❌ 当前直播 Post ID 已改变，请重新确认', {
+      return jsonError(res, 409, mode === 'test'
+        ? '❌ 测试目标 Post ID 已改变，请重新确认'
+        : '❌ 当前直播 Post ID 已改变，请重新确认', {
         post_changed: true,
         post_id: target.id,
         source: target.source,
-        created_time: target.created_time || ''
+        created_time: target.created_time || '',
+        mode
       });
     }
 
@@ -198,6 +236,8 @@ export default async function handler(req, res) {
           post_id: target.id,
           failed_step: i + 1,
           sent_count: commentIds.length,
+          mode,
+          code: error.code || '',
           facebook: error.facebook || undefined
         });
       }
@@ -208,20 +248,22 @@ export default async function handler(req, res) {
       success: true,
       triggered: 1,
       completed: true,
-      message: '✅ 倒数已完成',
+      mode,
+      message: mode === 'test' ? '✅ 旧直播测试已完成' : '✅ 倒数已完成',
       post_id: target.id,
       live_video_id: target.live_video_id || '',
       source: target.source,
-      warning: target.warning || '',
       sent_count: commentIds.length,
       last_comment_id: commentIds.at(-1) || '',
       created_time: target.created_time || '',
       permalink_url: target.permalink_url || ''
     });
   } catch (error) {
-    const status = error.code === 'NO_LIVE_TARGET' ? 409 : 500;
+    const conflictCodes = new Set(['NO_ACTIVE_LIVE', 'NO_TEST_TARGET']);
+    const status = conflictCodes.has(error.code) ? 409 : (error.code === 'FACEBOOK_TIMEOUT' ? 504 : 500);
     return jsonError(res, status, `❌ ${error.message || '系统错误'}`, {
       code: error.code || '',
+      mode,
       facebook: error.facebook || undefined
     });
   }

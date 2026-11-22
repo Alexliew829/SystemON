@@ -76,6 +76,19 @@
       cursor: pointer;
     }
     .end-btn:disabled { opacity: 0.42; cursor: not-allowed; }
+    .test-btn {
+      width: 100%;
+      margin-top: 10px;
+      border: 1px solid rgba(124, 211, 255, 0.22);
+      border-radius: 16px;
+      padding: 11px 14px;
+      font-size: 15px;
+      font-weight: 800;
+      color: #bcd9ea;
+      background: rgba(45, 104, 139, 0.16);
+      cursor: pointer;
+    }
+    .test-btn:disabled { opacity: 0.42; cursor: not-allowed; }
     .status {
       margin-top: 18px;
       min-height: 58px;
@@ -136,12 +149,13 @@
   <main class="card">
     <img class="icon" src="/icon.png" alt="启动倒数" />
     <h1>启动倒数</h1>
-    <p class="note">V6.5 无 Make 版：优先识别当前直播；新直播第一次需要确认，同一直播后续可直接再次启动。</p>
+    <p class="note">V6.6 无 Make 版：正式倒数只允许当前 LIVE_NOW；无法确认直播时会停止，绝不自动发送到旧视频。</p>
 
     <button id="startBtn" class="btn">▶ 启动倒数</button>
     <button id="endBtn" class="end-btn" disabled>🔒 结束本场直播</button>
+    <button id="testBtn" class="test-btn">🧪 测试旧直播</button>
     <div id="status" class="status">准备就绪</div>
-    <div class="footer">Lover Legend Gardening · V6.4</div>
+    <div class="footer">Lover Legend Gardening · V6.6</div>
   </main>
 
   <div id="startOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="startConfirmTitle">
@@ -151,6 +165,17 @@
       <div class="confirm-actions">
         <button id="startCancelBtn" class="cancel">取消</button>
         <button id="startConfirmBtn" class="confirm">确认启动</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="testOverlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="testConfirmTitle">
+    <div class="confirm-box">
+      <h2 id="testConfirmTitle">测试旧直播？</h2>
+      <p id="testConfirmText">测试模式会把完整倒数发送到最近 12 小时内的最新视频贴文。每次测试都必须确认。</p>
+      <div class="confirm-actions">
+        <button id="testCancelBtn" class="cancel">取消</button>
+        <button id="testConfirmBtn" class="confirm">确认测试</button>
       </div>
     </div>
   </div>
@@ -167,20 +192,27 @@
   </div>
 
   <script>
-    const CONFIRMED_KEY = 'systemon_confirmed_post_id_v64';
-    const ENDED_KEY = 'systemon_ended_post_id_v64';
+    const CONFIRMED_KEY = 'systemon_confirmed_post_id_v66';
+    const ENDED_KEY = 'systemon_ended_post_id_v66';
 
     const startBtn = document.getElementById('startBtn');
     const endBtn = document.getElementById('endBtn');
+    const testBtn = document.getElementById('testBtn');
     const status = document.getElementById('status');
     const startOverlay = document.getElementById('startOverlay');
     const endOverlay = document.getElementById('endOverlay');
+    const testOverlay = document.getElementById('testOverlay');
     const startCancelBtn = document.getElementById('startCancelBtn');
     const startConfirmBtn = document.getElementById('startConfirmBtn');
     const endCancelBtn = document.getElementById('endCancelBtn');
     const endConfirmBtn = document.getElementById('endConfirmBtn');
+    const testCancelBtn = document.getElementById('testCancelBtn');
+    const testConfirmBtn = document.getElementById('testConfirmBtn');
+    const testConfirmText = document.getElementById('testConfirmText');
 
     let pendingPostId = '';
+    let pendingTestPostId = '';
+    let pendingTestPermalink = '';
 
     function showStatus(type, text) {
       status.className = 'status' + (type ? ' ' + type : '');
@@ -189,6 +221,7 @@
 
     function setBusy(isBusy, text) {
       startBtn.disabled = isBusy;
+      testBtn.disabled = isBusy;
       if (text) startBtn.textContent = text;
     }
 
@@ -198,25 +231,26 @@
       endBtn.disabled = !confirmed || confirmed === ended;
     }
 
-    async function getLatestPost() {
-      const response = await fetch('/api/trigger', { method: 'GET', cache: 'no-store' });
+    async function getTarget(mode = 'live') {
+      const suffix = mode === 'test' ? '?mode=test' : '';
+      const response = await fetch('/api/trigger' + suffix, { method: 'GET', cache: 'no-store' });
       const data = await response.json();
       if (!response.ok || data.success !== true) {
-        throw new Error(data.message || '无法确认当前直播');
+        throw new Error(data.message || (mode === 'test' ? '无法找到旧直播测试目标' : '无法确认当前直播'));
       }
       return data;
     }
 
-    async function triggerPost(postId) {
+    async function triggerPost(postId, mode = 'live') {
       const response = await fetch('/api/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify({ post_id: postId })
+        body: JSON.stringify({ post_id: postId, mode })
       });
       const data = await response.json();
       if (!response.ok || data.success !== true) {
-        if (data.post_changed) {
+        if (data.post_changed && mode === 'live') {
           localStorage.removeItem(CONFIRMED_KEY);
         }
         throw new Error(data.message || '启动失败');
@@ -224,25 +258,27 @@
       return data;
     }
 
-    async function doTrigger(postId, rememberConfirmation) {
+    async function doTrigger(postId, rememberConfirmation, mode = 'live') {
       startOverlay.classList.remove('show');
       setBusy(true, '⏳ 倒数执行中...');
-      showStatus('loading', '正在执行完整倒数，请保持此页面开启...');
+      showStatus('loading', mode === 'test' ? '🧪 正在测试旧直播，请保持此页面开启...' : '正在执行完整倒数，请保持此页面开启...');
 
       try {
-        await triggerPost(postId);
-        if (rememberConfirmation) {
+        await triggerPost(postId, mode);
+        if (rememberConfirmation && mode === 'live') {
           localStorage.setItem(CONFIRMED_KEY, postId);
         }
-        showStatus('ok', '✅ 倒数已完成');
-        startBtn.textContent = '▶ 再次启动';
+        showStatus('ok', mode === 'test' ? '✅ 旧直播测试已完成' : '✅ 倒数已完成');
+        startBtn.textContent = mode === 'test' ? '▶ 启动倒数' : '▶ 再次启动';
         syncEndButton();
       } catch (error) {
         showStatus('err', '❌ ' + (error.message || '启动失败，请重试'));
         startBtn.textContent = '▶ 启动倒数';
       } finally {
         startBtn.disabled = false;
+        testBtn.disabled = false;
         pendingPostId = '';
+        if (mode === 'test') { pendingTestPostId = ''; pendingTestPermalink = ''; }
       }
     }
 
@@ -251,7 +287,7 @@
       showStatus('loading', '正在确认当前 Facebook 直播...');
 
       try {
-        const latest = await getLatestPost();
+        const latest = await getTarget('live');
         const confirmedPostId = localStorage.getItem(CONFIRMED_KEY) || '';
         const endedPostId = localStorage.getItem(ENDED_KEY) || '';
 
@@ -266,6 +302,7 @@
           showStatus('locked', '🔒 本场直播已结束，当前 Post 已锁定');
           startBtn.textContent = '▶ 启动倒数';
           startBtn.disabled = false;
+          testBtn.disabled = false;
           syncEndButton();
           return;
         }
@@ -286,12 +323,57 @@
         showStatus('err', '❌ ' + (error.message || '检查失败，请重试'));
         startBtn.textContent = '▶ 启动倒数';
         startBtn.disabled = false;
+        testBtn.disabled = false;
+      }
+    });
+
+    testBtn.addEventListener('click', async () => {
+      setBusy(true, '⏳ 检查中...');
+      showStatus('loading', '🧪 正在寻找最近的旧直播视频...');
+
+      try {
+        const target = await getTarget('test');
+        pendingTestPostId = target.post_id;
+        pendingTestPermalink = target.permalink_url || '';
+        const shortId = String(target.post_id || '').split('_').pop();
+        testConfirmText.textContent = `测试模式将把完整倒数发送到旧视频 ${shortId}。这不会影响正式直播锁定状态。确认继续？`;
+        testOverlay.classList.add('show');
+        showStatus('', '等待测试确认');
+      } catch (error) {
+        showStatus('err', '❌ ' + (error.message || '找不到旧直播测试目标'));
+      } finally {
+        startBtn.disabled = false;
+        testBtn.disabled = false;
+        startBtn.textContent = '▶ 启动倒数';
+      }
+    });
+
+    testCancelBtn.addEventListener('click', () => {
+      testOverlay.classList.remove('show');
+      pendingTestPostId = '';
+      pendingTestPermalink = '';
+      showStatus('', '已取消测试');
+    });
+
+    testConfirmBtn.addEventListener('click', async () => {
+      if (!pendingTestPostId) {
+        testOverlay.classList.remove('show');
+        showStatus('err', '❌ 测试 Post ID 已失效，请重新点击测试');
+        return;
+      }
+      testConfirmBtn.disabled = true;
+      testOverlay.classList.remove('show');
+      try {
+        await doTrigger(pendingTestPostId, false, 'test');
+      } finally {
+        testConfirmBtn.disabled = false;
       }
     });
 
     startCancelBtn.addEventListener('click', () => {
       startOverlay.classList.remove('show');
       pendingPostId = '';
+      testBtn.disabled = false;
       showStatus('', '已取消');
     });
 
